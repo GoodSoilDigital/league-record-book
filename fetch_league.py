@@ -25,7 +25,7 @@ from pathlib import Path
 
 import requests
 
-BASE = "https://lm-api-reads.fantasy.espn.com/apps/fantasy/ffl"
+BASE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl"
 
 BENCH_SLOT = 20
 IR_SLOT = 21
@@ -400,7 +400,10 @@ def main() -> None:
     if not args.league_id:
         sys.exit("Pass --league-id or set ESPN_LEAGUE_ID.")
     league_id = int(args.league_id)
-    api = Espn(league_id, os.environ.get("ESPN_S2"), os.environ.get("ESPN_SWID"))
+    s2, swid = os.environ.get("ESPN_S2", "").strip(), os.environ.get("ESPN_SWID", "").strip()
+    log(f"Cookies: espn_s2 {'set (' + str(len(s2)) + ' chars)' if s2 else 'NOT set'}, "
+        f"SWID {'set (' + str(len(swid)) + ' chars)' if swid else 'NOT set'}")
+    api = Espn(league_id, s2 or None, swid or None)
 
     end = args.end or current_season()
     latest = api.league(end, ["mSettings"])
