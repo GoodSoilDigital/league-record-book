@@ -232,7 +232,7 @@ svg text { font-family: var(--font-body); }
     <div class="panel-head"><h2>How each metric is calculated</h2></div>
     <div class="card endpoint">
       <p>All data comes from ESPN's league endpoint, one request per season:</p>
-      <p><code>https://lm-api-reads.fantasy.espn.com/apps/fantasy/ffl/seasons/{year}/segments/0/leagues/{leagueId}?view=mTeam&amp;view=mMatchup&amp;view=mSettings&amp;view=mDraftDetail&amp;view=mRoster</code></p>
+      <p><code>https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{year}/segments/0/leagues/{leagueId}?view=mTeam&amp;view=mMatchup&amp;view=mSettings&amp;view=mDraftDetail&amp;view=mRoster</code></p>
       <p class="muted">Seasons before 2018 use <code>/leagueHistory/{leagueId}?seasonId={year}</code>. Private leagues need the <code>espn_s2</code> and <code>SWID</code> cookies sent with each request.</p>
     </div>
     <div class="method" id="method"></div>
@@ -376,7 +376,7 @@ svg text { font-family: var(--font-body); }
     { key: "busts", label: "R1 busts", short: "1st-rounders outside top 20", better: -1, fmt: fmtInt,
       desc: "First-round picks who finished outside the top 20 at their position in season-long fantasy points." },
     { key: "lateHits", label: "Late gems", short: "Top-20s drafted after Rd 3", better: 1, fmt: fmtInt,
-      desc: "Players drafted in round 4 or later who finished inside the top 20 at their position." },
+      desc: "Players drafted in round 4 or later who finished inside the top 20 at their position. Kickers and defenses are left out, since nearly all of them go late." },
   ];
   const M = Object.fromEntries(METRICS.map(m => [m.key, m]));
   const val = (m, r) => { const v = m.sortVal ? m.sortVal(r) : r[m.key]; return isNum(v) ? v : null; };
@@ -584,7 +584,7 @@ svg text { font-family: var(--font-body); }
       inj: "Weekly box scores (<code>mBoxscore</code> per <code>scoringPeriodId</code>): starters who played, scored under 40% of a 5+ point projection, and the next week sat on IR or recorded no stats outside their bye. ESPN has no in-game injury flag, so this is an estimate.",
       ss: "Weekly <code>rosterForCurrentScoringPeriod</code>: a starting slot is correct when no bench player eligible for it (<code>eligibleSlots</code>) scored more.",
       busts: "<code>mDraftDetail</code> picks with <code>roundId = 1</code>, ranked within position by season fantasy points from <code>kona_player_info</code>.",
-      lateHits: "<code>mDraftDetail</code> picks with <code>roundId ≥ 4</code> whose season total ranks top 20 at their position.",
+      lateHits: "<code>mDraftDetail</code> picks with <code>roundId ≥ 4</code> whose season total ranks top 20 at their position, excluding K and D/ST.",
     };
     $("method").innerHTML = METRICS.map(m => `<div class="card"><h3>${m.short}</h3><p class="muted" style="font-size:.88rem">${how[m.key]}</p></div>`).join("");
   }
