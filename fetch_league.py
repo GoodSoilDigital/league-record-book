@@ -40,7 +40,7 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
                             # ...and missed the next week (IR slot or no stats, not a bye)
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 3              # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 4              # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
@@ -143,12 +143,14 @@ def position_ranks(api: Espn, year: int, drafted: set[int]) -> dict[int, int]:
         "sortAppliedStatTotal": {"sortAsc": False, "sortPriority": 1, "value": f"00{year}"},
         "limit": 1500,
     }}
+    sort = {"sortAsc": False, "sortPriority": 1, "value": f"00{year}"}
+    filt["players"]["sortAppliedStatTotal"] = sort
     data = api.league(year, ["kona_player_info"], filt=filt) or {}
     players = {p["id"]: p.get("player", p) for p in data.get("players", [])}
     missing = [pid for pid in drafted if pid not in players]
-    if missing:
-        more = api.league(year, ["kona_player_info"],
-                          filt={"players": {"filterIds": {"value": missing}, "limit": len(missing)}}) or {}
+    if missing:  # ESPN rejects a limit without a sort, so send both
+        more = api.league(year, ["kona_player_info"], filt={"players": {
+            "filterIds": {"value": missing}, "sortAppliedStatTotal": sort, "limit": len(missing)}}) or {}
         players.update({p["id"]: p.get("player", p) for p in more.get("players", [])})
     if not players:
         raise RuntimeError("ESPN returned no player stats")
