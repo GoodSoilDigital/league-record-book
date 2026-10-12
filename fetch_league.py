@@ -40,7 +40,7 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
                             # ...and missed the next week (IR slot or no stats, not a bye)
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 2               # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 3              # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
@@ -282,8 +282,13 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
         }
 
     # Matchups: records, head-to-head games, and all-play expected wins
+    # Championship bracket only: both teams must have a playoff seed and still be alive.
+    # ESPN doesn't always label consolation games, so track eliminations ourselves.
+    alive = {t["id"] for t in teams if t.get("playoffSeed") and t["playoffSeed"] <= playoff_teams}
+    eliminated_after = {}  # team -> matchup period they were knocked out in
+
     games, weekly, counted, tiers = [], defaultdict(dict), set(), defaultdict(int)
-    for m in data.get("schedule", []):
+    for m in sorted(data.get("schedule", []), key=lambda m: m.get("matchupPeriodId", 0)):
         home, away = m.get("home"), m.get("away")
         if not home or not away or m.get("winner") == "UNDECIDED":
             continue
@@ -294,8 +299,14 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             tiers[tier] += 1
             if any(s in tier.upper() for s in SKIPPED_PLAYOFF_TIERS):
                 continue
+            a, b = home["teamId"], away["teamId"]
+            if not all(t in alive and eliminated_after.get(t, mp) >= mp for t in (a, b)):
+                continue
         a, b = home["teamId"], away["teamId"]
         sa, sb = round(home.get("totalPoints", 0.0), 2), round(away.get("totalPoints", 0.0), 2)
+        if not regular:  # ESPN's winner field already applies the league's playoff tiebreaker
+            loser = b if m.get("winner") == "HOME" else a if m.get("winner") == "AWAY" else (b if sa > sb else a)
+            eliminated_after.setdefault(loser, mp)
         games.append({"wk": mp, "a": key_of[a], "b": key_of[b], "sa": sa, "sb": sb, "po": not regular})
         counted.update({(mp, a), (mp, b)})
         if regular:
