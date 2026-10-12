@@ -38,7 +38,9 @@ BOX_SCORES_FROM = 2019      # ESPN only serves lineups/box scores from 2019 on
 INJURY_SHARE = 0.4          # starter scored under 40% of projection...
 INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
                             # ...and missed the next week (IR slot or no stats, not a bye)
-COUNTED_PLAYOFF_TIERS = {"WINNERS_BRACKET"}  # consolation games don't count toward records
+SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
+DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
+CACHE_VERSION = 2               # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
@@ -154,12 +156,13 @@ def position_ranks(api: Espn, year: int, drafted: set[int]) -> dict[int, int]:
     by_pos = defaultdict(list)
     for pid, pl in players.items():
         by_pos[pl.get("defaultPositionId")].append((season_total(pl, year), pid))
-    ranks = {}
-    for entries in by_pos.values():
+    ranks, pos = {}, {}
+    for position, entries in by_pos.items():
         entries.sort(reverse=True)
         for n, (_, pid) in enumerate(entries, 1):
             ranks[pid] = n
-    return ranks
+            pos[pid] = position
+    return {"rank": ranks, "pos": pos}
 
 
 def parse_entry(entry: dict, sp: int) -> dict:
@@ -279,15 +282,18 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
         }
 
     # Matchups: records, head-to-head games, and all-play expected wins
-    games, weekly, counted = [], defaultdict(dict), set()
+    games, weekly, counted, tiers = [], defaultdict(dict), set(), defaultdict(int)
     for m in data.get("schedule", []):
         home, away = m.get("home"), m.get("away")
         if not home or not away or m.get("winner") == "UNDECIDED":
             continue
         mp = m["matchupPeriodId"]
-        regular = mp <= reg_periods if reg_periods else m.get("playoffTierType", "NONE") == "NONE"
-        if not regular and m.get("playoffTierType") not in COUNTED_PLAYOFF_TIERS:
-            continue
+        tier = str(m.get("playoffTierType") or "NONE")
+        regular = mp <= reg_periods if reg_periods else tier == "NONE"
+        if not regular:
+            tiers[tier] += 1
+            if any(s in tier.upper() for s in SKIPPED_PLAYOFF_TIERS):
+                continue
         a, b = home["teamId"], away["teamId"]
         sa, sb = round(home.get("totalPoints", 0.0), 2), round(away.get("totalPoints", 0.0), 2)
         games.append({"wk": mp, "a": key_of[a], "b": key_of[b], "sa": sa, "sb": sb, "po": not regular})
@@ -307,9 +313,13 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                 lines[key_of[tid]]["xw"] += beat / len(others)
     for ln in lines.values():
         ln["xw"] = round(ln["xw"], 3)
+    log(f"  {year}: {len(games)} games counted, {sum(g['po'] for g in games)} playoff; "
+        f"playoff matchups by tier: {dict(tiers) or 'none found'}")
 
     # Draft: first-round busts and late-round top-20 finishers (finished seasons only)
     picks = (data.get("draftDetail") or {}).get("picks") or []
+    if not picks:
+        log(f"  {year}: ESPN returned no draft picks; skipping draft metrics")
     if picks and complete:
         try:
             ranks = position_ranks(api, year, {p["playerId"] for p in picks})
@@ -321,9 +331,9 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                 ln["r1Bust"], ln["lateHits"] = 0, 0
             for p in picks:
                 k = key_of.get(p.get("teamId"))
-                if k is None:
+                if k is None or ranks["pos"].get(p["playerId"]) in DRAFT_SKIP_POSITIONS:
                     continue
-                rank = ranks.get(p["playerId"])
+                rank = ranks["rank"].get(p["playerId"])
                 top = rank is not None and rank <= TOP_AT_POSITION
                 if p.get("roundId") == 1 and not top:
                     lines[k]["r1Bust"] += 1
@@ -343,7 +353,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             for tid, k in key_of.items():
                 lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
 
-    return {"year": year, "size": size, "complete": complete, "boxScores": did_box,
+    return {"v": CACHE_VERSION, "year": year, "size": size, "complete": complete, "boxScores": did_box,
             "name": (data.get("settings") or {}).get("name"), "lines": lines, "games": games}
 
 
@@ -423,7 +433,7 @@ def main() -> None:
         path = cache / f"{year}.json"
         if path.exists() and not args.refresh:
             r = json.loads(path.read_text())
-            if r["boxScores"] or not want_box or year < BOX_SCORES_FROM:
+            if r.get("v") == CACHE_VERSION and (r["boxScores"] or not want_box or year < BOX_SCORES_FROM):
                 log(f"{year}: from cache")
                 results.append(r)
                 continue
