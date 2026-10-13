@@ -132,8 +132,10 @@ svg text { font-family: var(--font-body); }
 /* Profile */
 .profile-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
 .profile-head h2 { font-size: 2rem; }
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
-@media (max-width: 480px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+@media (max-width: 1100px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .stats { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .stats > div { background: var(--surface); padding: 10px 12px; display: grid; gap: 2px; }
 .stats .v { font: 700 1.5rem/1 var(--font-display); }
 .stats .k { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
@@ -153,6 +155,8 @@ svg text { font-family: var(--font-body); }
 .pill.champ { background: var(--accent); color: var(--bg); }
 .pill.po { background: color-mix(in oklab, var(--good) 20%, var(--surface)); color: var(--ink); }
 .pill.last { background: color-mix(in oklab, var(--bad) 22%, var(--surface)); color: var(--ink); }
+.pill.runner { background: color-mix(in oklab, var(--accent) 22%, var(--surface)); color: var(--ink); }
+.pill.push { background: var(--sunken); color: var(--muted); }
 
 /* Matrix */
 .matrix th, .matrix td { padding: 0; text-align: center; font-size: .8rem; }
@@ -163,6 +167,39 @@ svg text { font-family: var(--font-body); }
 .matrix tr.sel th { color: var(--accent); }
 .matrix th.selcol { color: var(--accent); }
 .matrix tr.sel td div { outline: 1px solid color-mix(in oklab, var(--accent) 50%, transparent); }
+/* Trades */
+.trade-tools { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; font-size: .88rem; }
+.trade-tools label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.scorecard th, .scorecard td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; font-size: .86rem; }
+.scorecard th { font: 600 .68rem/1.2 var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.scorecard td { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.scorecard th:first-child, .scorecard td:first-child { text-align: left; font-family: var(--font-body); }
+.trade-list { display: grid; gap: 12px; }
+.trade { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); display: grid; min-width: 0; }
+.trade.sel-trade { border-color: color-mix(in oklab, var(--accent) 55%, var(--line)); }
+.trade-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.trade-head .when { font: 600 .72rem/1 var(--font-body); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.verdict { font-size: .85rem; }
+.verdict b { font-weight: 600; }
+.trade-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.side { padding: 12px 14px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.side + .side { border-left: 1px solid var(--line); }
+@media (max-width: 600px) { .side + .side { border-left: 0; border-top: 1px solid var(--line); } }
+.side-name { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.side-name b { font-weight: 600; }
+.side.won .side-name b::after { content: "Won trade"; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font: 600 .64rem/1.5 var(--font-body); letter-spacing: .05em; text-transform: uppercase; background: var(--good); color: var(--bg); }
+.got { display: grid; gap: 4px; }
+.got-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font-size: .86rem; }
+.got-row .pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.got-row .rank { font-family: var(--font-data); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.got-row .sub { grid-column: 1 / -1; font-size: .76rem; color: var(--muted); font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.side-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.side-totals > div { background: var(--sunken); padding: 6px 8px; display: grid; gap: 1px; }
+.side-totals .v { font: 600 .95rem/1.1 var(--font-data); font-variant-numeric: tabular-nums; }
+.side-totals .k { font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.empty { padding: 18px; color: var(--muted); }
+.scorecard tr.sel td { background: color-mix(in oklab, var(--accent) 12%, var(--surface)); }
+
 .legend { display: flex; align-items: center; gap: 10px; font-size: .8rem; color: var(--muted); flex-wrap: wrap; }
 .ramp { width: 160px; height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--bad), var(--sunken), var(--good)); }
 
@@ -226,6 +263,18 @@ svg text { font-family: var(--font-body); }
       <div class="legend"><span>Row manager's record vs column opponent, playoffs included</span><span>Losing</span><span class="ramp" aria-hidden="true"></span><span>Winning</span></div>
     </div>
     <div class="card scroll-x"><table class="matrix" id="matrix"></table></div>
+  </section>
+
+  <section class="panel" id="trades">
+    <div class="panel-head">
+      <h2>Trade analyzer</h2>
+      <div class="trade-tools">
+        <label for="tradeMine"><input type="checkbox" id="tradeMine"> <span id="tradeMineLabel">Only this manager's trades</span></label>
+      </div>
+    </div>
+    <p class="metric-desc">Each player's positional rank by points scored before the trade vs. from the trade week to season's end. A trade is won by the side whose new players scored more points in its starting lineup. Ranks and points use your league's scoring.</p>
+    <div class="card scroll-x" style="padding:0"><table class="scorecard" id="scorecard"></table></div>
+    <div class="trade-list" id="tradeList"></div>
   </section>
 
   <section class="panel">
@@ -303,26 +352,51 @@ svg text { font-family: var(--font-body); }
       });
       sizes[y] = n;
     });
+
+    // Two made-up trades a season
+    const POOL = [["Marcus Hale", "RB"], ["Devin Okafor", "WR"], ["Tre Whitfield", "WR"], ["Jalen Pryor", "QB"], ["Caleb Strand", "TE"],
+      ["Isaiah Monroe", "RB"], ["Rashad Kemp", "WR"], ["Owen Castillo", "RB"], ["Darius Vale", "WR"], ["Nico Brandt", "TE"]];
+    const trades = [];
+    years.forEach(y => [5, 9].forEach(wk => {
+      const a = Math.floor(rand() * n); let b = Math.floor(rand() * (n - 1)); if (b >= a) b++;
+      const player = from => {
+        const [name, pos] = POOL[Math.floor(rand() * POOL.length)];
+        const rb = 3 + Math.floor(rand() * 35), ra = Math.max(1, rb + Math.round(gauss() * 12));
+        const ptsAfter = +Math.max(5, (60 - ra) * (17 - wk) / 6 + gauss() * 10).toFixed(1);
+        return { name, pos, from, rankBefore: rb, rankAfter: ra, ptsBefore: +((60 - rb) * (wk - 1) / 6).toFixed(1),
+          ptsAfter, started: +(ptsAfter * (.5 + rand() * .45)).toFixed(1) };
+      };
+      const side = (m, got) => ({ m, got, started: +got.reduce((s, g) => s + g.started, 0).toFixed(1),
+        after: +got.reduce((s, g) => s + g.ptsAfter, 0).toFixed(1),
+        recBefore: [0, 0, 0], recAfter: [0, 0, 0] });
+      const sa = side(a, [player(b), ...(rand() < .4 ? [player(b)] : [])]), sb = side(b, [player(a)]);
+      [sa, sb].forEach(s => { s.recBefore = [Math.floor(rand() * wk), 0, 0]; s.recBefore[1] = wk - 1 - s.recBefore[0];
+        s.recAfter = [Math.floor(rand() * (15 - wk)), 0, 0]; s.recAfter[1] = 14 - wk + 1 - s.recAfter[0]; });
+      trades.push({ y, wk, sides: [sa, sb] });
+    }));
+
     return { sample: true, league: { name: "Sample league" }, managers: MGR.map(({ name, team }) => ({ name, team })),
-      years, sizes, seasons, games, boxScoresFrom: years[0] };
+      years, sizes, playoffTeams: Object.fromEntries(years.map(y => [y, PO])), seasons, games, trades, boxScoresFrom: years[0] };
   }
 
   // ---------- State ----------
-  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish" };
-  const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} };
+  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false };
+  const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeMine: state.tradeMine })); } catch (e) {} };
   const inRange = y => y >= state.from && y <= state.to;
   const isNum = v => v !== null && v !== undefined && !Number.isNaN(v);
 
   // ---------- Aggregation over the selected season range ----------
   function aggregate() {
     const ys = D.years.filter(inRange);
-    const rec = D.managers.map(() => ({ w: 0, l: 0, t: 0 }));
+    const rec = D.managers.map(() => ({ w: 0, l: 0, t: 0, pf: 0, pa: 0 }));
     D.games.forEach(g => {
       if (!inRange(g.y)) return;
       if (g.sa > g.sb) { rec[g.a].w++; rec[g.b].l++; } else if (g.sa < g.sb) { rec[g.a].l++; rec[g.b].w++; } else { rec[g.a].t++; rec[g.b].t++; }
+      rec[g.a].pf += g.sa; rec[g.a].pa += g.sb; rec[g.b].pf += g.sb; rec[g.b].pa += g.sa;
     });
     return D.managers.map((m, i) => {
-      const lines = ys.map(y => { const l = (D.seasons[y] || [])[i]; return l ? { y, ...l } : null; }).filter(Boolean);
+      const lines = ys.map(y => { const l = (D.seasons[y] || [])[i]; return l ? { y, ...l, label: finishLabel(y, l) } : null; }).filter(Boolean);
+      const finished = lines.filter(l => isNum(l.finish));
       const sum = k => { let s = null; lines.forEach(l => { if (isNum(l[k])) s = (s || 0) + Number(l[k]); }); return s; };
       const fin = lines.map(l => l.finish).filter(isNum);
       const g = sum("g") || 0, ssT = sum("ssT"), r = rec[i], played = r.w + r.l + r.t;
@@ -331,6 +405,8 @@ svg text { font-family: var(--font-body); }
         avgFinish: fin.length ? fin.reduce((a, b) => a + b, 0) / fin.length : null,
         best: fin.length ? Math.min(...fin) : null, worst: fin.length ? Math.max(...fin) : null,
         w: r.w, l: r.l, t: r.t, winPct: played ? (r.w + r.t / 2) / played : null,
+        pf: played ? r.pf : null, pa: played ? r.pa : null,
+        sacko: finished.length ? finished.filter(l => l.label === "Bottom 4").length : null,
         regW: (sum("w") || 0) + (sum("t") || 0) / 2, xw: sum("xw") || 0,
         wae: g ? ((sum("w") || 0) + (sum("t") || 0) / 2 - (sum("xw") || 0)) / g * 100 : null,
         playoffs: sum("playoffs"), poSeasons: lines.filter(l => isNum(l.playoffs) || typeof l.playoffs === "boolean").length,
@@ -355,35 +431,53 @@ svg text { font-family: var(--font-body); }
   }
   const recStr = (w, l, t) => `${w}-${l}${t ? `-${t}` : ""}`;
 
+  // Season result: Champion, Runner-up, Playoffs, Push (just missed), or Bottom 4 (Sacko bracket)
+  function finishLabel(y, l) {
+    if (!isNum(l.finish)) return "In progress";
+    if (l.finish === 1) return "Champion";
+    if (l.finish === 2) return "Runner-up";
+    const size = Number((D.sizes || {})[y]) || MAXN, po = Number((D.playoffTeams || {})[y]) || 6;
+    if (l.playoffs === true || (isNum(l.seed) && l.seed <= po)) return "Playoffs";
+    if (isNum(l.seed) && l.seed > size - 4) return "Bottom 4";
+    return "Push";
+  }
+  const LABEL_PILL = { "Champion": "champ", "Runner-up": "runner", "Playoffs": "po", "Push": "push", "Bottom 4": "last", "In progress": "push" };
+
   // ---------- Metric definitions ----------
   const fmt1 = v => v.toFixed(1), fmtPct = v => v.toFixed(1) + "%", fmtInt = v => String(v);
+  const fmtPts = v => Math.round(v).toLocaleString("en-US");
   const fmtSigned = v => (v > 0.05 ? "+" : v < -0.05 ? "−" : "") + Math.abs(v).toFixed(1) + "%";
   const METRICS = [
     { key: "avgFinish", label: "Avg finish", short: "Avg yearly finish", better: -1, fmt: fmt1,
       desc: "Mean final standing per finished season, after playoffs. 1st is the champion. The line shows best to worst finish." },
     { key: "record", label: "Record", short: "Total record", better: 1, sortVal: r => r.winPct, fmt: (v, r) => recStr(r.w, r.l, r.t), noChart: true,
       desc: "All-time wins and losses, regular season and championship bracket. See the head-to-head grid for each pairing." },
+    { key: "pf", label: "Points for", short: "Total points for", better: 1, fmt: fmtPts,
+      desc: "All-time points scored, regular season and championship bracket." },
+    { key: "pa", label: "Points against", short: "Total points against", better: 0, fmt: fmtPts,
+      desc: "All-time points scored against you, regular season and championship bracket. Not a skill, so no leader star." },
     { key: "wae", label: "Wins above exp.", short: "Wins above expected %", better: 1, fmt: fmtSigned,
       desc: "Actual win rate minus all-play win rate, regular season only. All-play counts how many teams you'd have beaten each week. Positive means schedule luck went your way." },
     { key: "playoffs", label: "Playoffs", short: "Playoff appearances", better: 1, fmt: fmtInt,
       desc: "Seasons that ended with a playoff seed." },
-    { key: "lasts", label: "Last place", short: "Last-place finishes", better: -1, fmt: fmtInt,
-      desc: "Seasons finishing dead last in the final standings." },
+    { key: "sacko", label: "Sacko", short: "Sacko appearances", better: -1, fmt: fmtInt,
+      desc: "Finished seasons ending in the bottom four of the regular-season standings." },
     { key: "inj", label: "Mid-game injuries", short: "Starters injured mid-game", better: -1, fmt: fmtInt,
       desc: "Starters who played, scored under 40% of their projection, then missed the next week (IR or no stats, not a bye). Box scores exist from 2019 on." },
     { key: "ss", label: "Start/sit %", short: "Start/sit correct %", better: 1, fmt: fmtPct,
       desc: "Share of lineup slots where the starter outscored every eligible bench player for that slot. Box scores exist from 2019 on." },
     { key: "busts", label: "R1 busts", short: "1st-rounders outside top 20", better: -1, fmt: fmtInt,
       desc: "First-round picks who finished outside the top 20 at their position in season-long fantasy points." },
-    { key: "lateHits", label: "Late gems", short: "Top-20s drafted after Rd 3", better: 1, fmt: fmtInt,
-      desc: "Players drafted in round 4 or later who finished inside the top 20 at their position. Kickers and defenses are left out, since nearly all of them go late." },
+    { key: "lateHits", label: "Late gems", short: "Top finishers drafted after Rd 3", better: 1, fmt: fmtInt,
+      desc: "Players drafted in round 4 or later who finished top 20 at their position (top 12 for QBs and TEs). Kickers and defenses are left out, since nearly all of them go late." },
   ];
   const M = Object.fromEntries(METRICS.map(m => [m.key, m]));
   const val = (m, r) => { const v = m.sortVal ? m.sortVal(r) : r[m.key]; return isNum(v) ? v : null; };
   const show = (m, r) => val(m, r) === null ? "—" : m.fmt(r[m.key], r);
   // Nulls always sort last
   const cmp = (m, dir) => (a, b) => { const va = val(m, a), vb = val(m, b); if (va === null) return vb === null ? 0 : 1; if (vb === null) return -1; return dir * (va - vb); };
-  const bestFirst = m => cmp(m, -m.better);
+  const dirOf = m => m.better || 1;  // metrics with no better direction (points against) sort high to low
+  const bestFirst = m => cmp(m, -dirOf(m));
 
   // ---------- Tooltip ----------
   const tip = $("tip");
@@ -440,7 +534,7 @@ svg text { font-family: var(--font-body); }
   function renderBoard(rows) {
     const sorted = rows.slice().sort((a, b) => cmp(M[state.sortKey], state.sortDir)(a, b) || bestFirst(M.avgFinish)(a, b));
     const leaders = {};
-    METRICS.forEach(mm => { const v = rows.map(r => val(mm, r)).filter(x => x !== null); leaders[mm.key] = v.length ? (mm.better > 0 ? Math.max(...v) : Math.min(...v)) : undefined; });
+    METRICS.forEach(mm => { const v = rows.map(r => val(mm, r)).filter(x => x !== null); leaders[mm.key] = v.length && mm.better ? (mm.better > 0 ? Math.max(...v) : Math.min(...v)) : undefined; });
     const head = `<thead><tr><th>Manager</th>${METRICS.map(mm => {
       const s = state.sortKey === mm.key ? (state.sortDir > 0 ? "ascending" : "descending") : null;
       return `<th ${s ? `aria-sort="${s}"` : ""} title="${esc(mm.desc)}"><button data-sort="${mm.key}">${mm.short}</button></th>`;
@@ -452,7 +546,7 @@ svg text { font-family: var(--font-body); }
     $("board").innerHTML = head + `<tbody>${body}</tbody>`;
     $("board").querySelectorAll("[data-sort]").forEach(b => b.onclick = () => {
       const k = b.dataset.sort;
-      if (state.sortKey === k) state.sortDir *= -1; else { state.sortKey = k; state.sortDir = -M[k].better; }
+      if (state.sortKey === k) state.sortDir *= -1; else { state.sortKey = k; state.sortDir = -dirOf(M[k]); }
       save(); render();
     });
     $("board").querySelectorAll("tbody tr").forEach(tr => tr.onclick = () => select(+tr.dataset.i));
@@ -484,7 +578,7 @@ svg text { font-family: var(--font-body); }
       scale = v => x0 + (v - lo) / (hi - lo) * (x1 - x0);
       for (let t = lo; t <= hi; t += 5) ticks.push(t);
     } else {
-      const max = Math.max(1, ...vals), step = max > 20 ? 5 : max > 8 ? 2 : 1, hi = Math.ceil(max / step) * step;
+      const max = Math.max(1, ...vals), raw = max / 5, mag = 10 ** Math.floor(Math.log10(raw)), step = Math.max(1, [1, 2, 5, 10].map(s => s * mag).find(s => s >= raw)), hi = Math.ceil(max / step) * step;
       scale = v => x0 + v / hi * (x1 - x0);
       for (let t = 0; t <= hi; t += step) ticks.push(t);
     }
@@ -528,9 +622,9 @@ svg text { font-family: var(--font-body); }
     const maxG = Math.max(1, ...opp.map(o => o.w + o.l + o.t));
     const dash = v => isNum(v) ? v : "—";
     const seasonsRows = r.lines.slice().reverse().map(l => {
-      const tag = l.champ ? `<span class="pill champ">Champion</span>` : l.last ? `<span class="pill last">Last</span>` : l.playoffs ? `<span class="pill po">Playoffs</span>` : "";
+      const tip = isNum(l.finish) ? `Final standing ${l.finish} · regular-season seed ${dash(l.seed)}` : `Current seed ${dash(l.seed)}`;
       const wae = l.g ? ((l.w + (l.t || 0) / 2) - l.xw) / l.g * 100 : null;
-      return `<tr><td>${l.y}</td><td>${recStr(l.w, l.l, l.t)}</td><td>${isNum(l.finish) ? l.finish : "In progress"} ${tag}</td>`
+      return `<tr><td>${l.y}</td><td>${recStr(l.w, l.l, l.t)}</td><td>${dash(l.seed)}</td><td data-tip="${esc(tip)}"><span class="pill ${LABEL_PILL[l.label]}">${l.label}</span></td>`
         + `<td class="${wae === null ? "" : wae >= 0 ? "pos" : "neg"}">${wae === null ? "—" : fmtSigned(wae)}</td><td>${dash(l.inj)}</td>`
         + `<td>${l.ssT ? fmtPct(l.ssC / l.ssT * 100) : "—"}</td><td>${dash(l.r1Bust)}</td><td>${dash(l.lateHits)}</td></tr>`;
     }).join("");
@@ -542,7 +636,9 @@ svg text { font-family: var(--font-body); }
         <div><span class="v num">${show(M.avgFinish, r)}</span><span class="k">Avg finish${rk("avgFinish")}</span></div>
         <div><span class="v num ${r.wae === null ? "" : r.wae >= 0 ? "pos" : "neg"}">${show(M.wae, r)}</span><span class="k">Wins above exp.</span></div>
         <div><span class="v num">${r.poSeasons ? `${r.playoffs || 0}/${r.poSeasons}` : "—"}</span><span class="k">Playoffs</span></div>
-        <div><span class="v num">${show(M.lasts, r)}</span><span class="k">Last places</span></div>
+        <div><span class="v num">${show(M.sacko, r)}</span><span class="k">Sacko apps</span></div>
+        <div><span class="v num">${show(M.pf, r)}</span><span class="k">Points for${rk("pf")}</span></div>
+        <div><span class="v num">${show(M.pa, r)}</span><span class="k">Points against</span></div>
         <div><span class="v num">${show(M.ss, r)}</span><span class="k">Start/sit${rk("ss")}</span></div>
         <div><span class="v num">${show(M.inj, r)}</span><span class="k">Mid-game inj.</span></div>
         <div><span class="v num">${show(M.busts, r)}</span><span class="k">R1 busts</span></div>
@@ -556,7 +652,7 @@ svg text { font-family: var(--font-body); }
           <span class="rec">${recStr(o.w, o.l, o.t)}</span>
         </div>`).join("") : `<p class="muted">No games in these seasons.</p>`}</div>
       <h3>Season by season</h3>
-      <div class="scroll-x"><table class="seasons"><thead><tr><th>Year</th><th>Record</th><th>Finish</th><th>WAE</th><th>Inj.</th><th>Start/sit</th><th>R1 busts</th><th>Late gems</th></tr></thead><tbody>${seasonsRows}</tbody></table></div>`;
+      <div class="scroll-x"><table class="seasons"><thead><tr><th>Year</th><th>Record</th><th>Seed</th><th>Finish</th><th>WAE</th><th>Inj.</th><th>Start/sit</th><th>R1 busts</th><th>Late gems</th></tr></thead><tbody>${seasonsRows}</tbody></table></div>`;
     $("mgrSelect").value = state.sel;
   }
 
@@ -580,13 +676,82 @@ svg text { font-family: var(--font-body); }
       record: "Every decided matchup in <code>schedule[]</code> (<code>mMatchup</code>), grouped by owner pair. Regular season plus the winners bracket; consolation games are left out.",
       wae: "From <code>schedule[]</code> scores: each week, compare every team's points to the rest of the league to get all-play wins. Actual win rate minus that.",
       playoffs: "<code>team.playoffSeed</code> ≤ <code>settings.scheduleSettings.playoffTeamCount</code>.",
-      lasts: "<code>rankCalculatedFinal</code> equals the number of teams that season.",
+      pf: "Sum of your score in every counted game from <code>schedule[]</code>: regular season plus the championship bracket.",
+      pa: "Sum of your opponents' scores in those same games.",
+      sacko: "Finished seasons where <code>playoffSeed</code> (final regular-season standing) was in the bottom four of the league.",
+      trades: "<code>mTransactions2</code> for each week: executed trades and which players moved. Weekly player points from <code>kona_player_info</code> give positional ranks before and after; weekly box scores give points each player scored in the new team's starting lineup.",
       inj: "Weekly box scores (<code>mBoxscore</code> per <code>scoringPeriodId</code>): starters who played, scored under 40% of a 5+ point projection, and the next week sat on IR or recorded no stats outside their bye. ESPN has no in-game injury flag, so this is an estimate.",
       ss: "Weekly <code>rosterForCurrentScoringPeriod</code>: a starting slot is correct when no bench player eligible for it (<code>eligibleSlots</code>) scored more.",
       busts: "<code>mDraftDetail</code> picks with <code>roundId = 1</code>, ranked within position by season fantasy points from <code>kona_player_info</code>.",
-      lateHits: "<code>mDraftDetail</code> picks with <code>roundId ≥ 4</code> whose season total ranks top 20 at their position, excluding K and D/ST.",
+      lateHits: "<code>mDraftDetail</code> picks with <code>roundId ≥ 4</code> whose season total ranks top 20 at their position (top 12 for QB and TE), excluding K and D/ST.",
     };
-    $("method").innerHTML = METRICS.map(m => `<div class="card"><h3>${m.short}</h3><p class="muted" style="font-size:.88rem">${how[m.key]}</p></div>`).join("");
+    $("method").innerHTML = METRICS.map(m => `<div class="card"><h3>${m.short}</h3><p class="muted" style="font-size:.88rem">${how[m.key]}</p></div>`).join("")
+      + `<div class="card"><h3>Trade analyzer</h3><p class="muted" style="font-size:.88rem">${how.trades}</p></div>`;
+  }
+
+  // ---------- Trades ----------
+  const CLOSE_CALL = 10;  // started-point margin under which a trade is a wash
+  function tradeScore(t) {
+    const key = t.sides.every(s => isNum(s.started)) ? "started" : "after";
+    const ranked = t.sides.slice().sort((a, b) => b[key] - a[key]);
+    const margin = ranked[0][key] - ranked[1][key];
+    return { key, winner: margin >= CLOSE_CALL ? ranked[0].m : null, margin };
+  }
+
+  function renderTrades(rows) {
+    const trades = (D.trades || []).filter(t => inRange(t.y));
+    const name = i => esc((D.managers[i] || {}).name || "Unknown");
+    const sel = rows.find(r => r.i === state.sel);
+    $("tradeMineLabel").textContent = `Only ${sel ? sel.name : "this manager"}'s trades`;
+    $("tradeMine").checked = state.tradeMine;
+
+    // Scorecard: one row per manager who traded in this range
+    const card = {};
+    trades.forEach(t => {
+      const sc = tradeScore(t);
+      t.sides.forEach(s => {
+        const c = card[s.m] || (card[s.m] = { n: 0, won: 0, lost: 0, even: 0, net: 0 });
+        const best = Math.max(...t.sides.filter(o => o !== s).map(o => o[sc.key] || 0));
+        c.n++; c.net += (s[sc.key] || 0) - best;
+        if (sc.winner === null) c.even++; else if (sc.winner === s.m) c.won++; else c.lost++;
+      });
+    });
+    const cardRows = Object.entries(card).sort((a, b) => b[1].net - a[1].net);
+    $("scorecard").innerHTML = cardRows.length ? `<thead><tr><th>Manager</th><th>Trades</th><th>Won</th><th>Lost</th><th>Wash</th><th title="Started points gained minus started points given up">Net started pts</th></tr></thead><tbody>`
+      + cardRows.map(([m, c]) => `<tr class="${+m === state.sel ? "sel" : ""}"><td>${name(+m)}</td><td>${c.n}</td><td>${c.won}</td><td>${c.lost}</td><td>${c.even}</td><td class="${c.net >= 0 ? "pos" : "neg"}">${c.net >= 0 ? "+" : "−"}${Math.abs(c.net).toFixed(1)}</td></tr>`).join("")
+      + `</tbody>` : `<tbody><tr><td class="empty">No trades in these seasons.</td></tr></tbody>`;
+
+    const shown = trades.filter(t => !state.tradeMine || t.sides.some(s => s.m === state.sel))
+      .sort((a, b) => b.y - a.y || b.wk - a.wk);
+    const rankStr = (pos, n) => isNum(n) ? `${pos}${n}` : "—";
+    const recFmt = r => r ? recStr(r[0], r[1], r[2]) : "—";
+    $("tradeList").innerHTML = shown.length ? shown.map(t => {
+      const sc = tradeScore(t), basis = sc.key === "started" ? "started pts" : "pts after trade";
+      const verdict = sc.winner === null ? `<span class="verdict">Wash · within ${CLOSE_CALL} ${basis}</span>`
+        : `<span class="verdict"><b>${name(sc.winner)}</b> won by ${sc.margin.toFixed(1)} ${basis}</span>`;
+      const sides = t.sides.map(s => {
+        const got = s.got.length ? s.got.map(g => {
+          const delta = isNum(g.rankBefore) && isNum(g.rankAfter) ? g.rankBefore - g.rankAfter : null;
+          const cls = delta === null ? "" : delta > 0 ? "pos" : delta < 0 ? "neg" : "";
+          return `<div class="got-row"><span class="pname">${esc(g.name)} <span class="muted">${esc(g.pos)}</span></span>`
+            + `<span class="rank ${cls}" data-tip="${esc(`Rank by points before the trade → from the trade week on<br>${g.ptsBefore} pts before · ${g.ptsAfter} pts after`)}">${rankStr(g.pos, g.rankBefore)} → ${rankStr(g.pos, g.rankAfter)}</span>`
+            + `<span class="sub">${g.ptsAfter} pts after${isNum(g.started) ? ` · ${g.started} started for ${name(s.m)}` : ""}${isNum(g.from) ? ` · from ${name(g.from)}` : ""}</span></div>`;
+        }).join("") : `<span class="muted">Nothing received</span>`;
+        return `<div class="side ${sc.winner === s.m ? "won" : ""}">
+          <div class="side-name"><b>${name(s.m)}</b><span class="muted" style="font-size:.78rem">received</span></div>
+          <div class="got">${got}</div>
+          <div class="side-totals">
+            <div><span class="v">${isNum(s.started) ? s.started.toFixed(1) : "—"}</span><span class="k">Started pts</span></div>
+            <div><span class="v">${s.after.toFixed(1)}</span><span class="k">Pts after</span></div>
+            <div data-tip="Team's regular-season record before the trade → after it"><span class="v">${recFmt(s.recBefore)} → ${recFmt(s.recAfter)}</span><span class="k">Team record</span></div>
+          </div>
+        </div>`;
+      }).join("");
+      return `<article class="trade ${t.sides.some(s => s.m === state.sel) ? "sel-trade" : ""}">
+        <div class="trade-head"><span class="when">${t.y} · Week ${t.wk}</span>${verdict}</div>
+        <div class="trade-sides">${sides}</div>
+      </article>`;
+    }).join("") : `<div class="card empty">${trades.length ? "No trades for this manager in these seasons." : "No trades found in these seasons."}</div>`;
   }
 
   function render() {
@@ -595,7 +760,7 @@ svg text { font-family: var(--font-body); }
     if (!M[state.metric] || M[state.metric].noChart) state.metric = "avgFinish";
     if (!M[state.sortKey]) state.sortKey = "avgFinish";
     $("mgrSelect").innerHTML = rows.map(r => `<option value="${r.i}">${esc(r.name)} · ${esc(r.team)}</option>`).join("");
-    renderSummary(rows); renderBoard(rows); renderTabs(); renderChart(rows); renderProfile(rows); renderMatrix(rows);
+    renderSummary(rows); renderBoard(rows); renderTabs(); renderChart(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows);
   }
 
   function init() {
@@ -609,6 +774,7 @@ svg text { font-family: var(--font-body); }
     $("fromYear").onchange = e => { state.from = +e.target.value; if (state.from > state.to) { state.to = state.from; $("toYear").value = state.to; } render(); };
     $("toYear").onchange = e => { state.to = +e.target.value; if (state.to < state.from) { state.from = state.to; $("fromYear").value = state.from; } render(); };
     $("mgrSelect").onchange = e => select(+e.target.value);
+    $("tradeMine").onchange = e => { state.tradeMine = e.target.checked; save(); render(); };
     renderData(); renderMethod(); render();
   }
 
