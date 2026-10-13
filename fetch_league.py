@@ -52,10 +52,10 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
 TRADED_MESSAGE = 244        # message type for a completed trade in the league activity feed
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 12            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 13            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
-               "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
+               "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits", "posPts"]
 
 
 def log(msg: str) -> None:
@@ -319,6 +319,7 @@ def parse_entry(entry: dict, sp: int) -> dict:
         "proj": proj,
         "played": played,
         "pro_team": player.get("proTeamId"),
+        "pos": POSITION_NAMES.get(player.get("defaultPositionId"), "Other"),
     }
 
 
@@ -365,6 +366,7 @@ def lineup_metrics(api: Espn, year: int, data: dict, counted: set, complete: boo
         return None
 
     ss_c, ss_t, inj = defaultdict(int), defaultdict(int), defaultdict(int)
+    pos_pts = defaultdict(lambda: defaultdict(float))  # team -> position -> starting-lineup points
     for sp, by_team in rosters.items():
         next_week = {e["id"]: e for entries in rosters.get(sp + 1, {}).values() for e in entries}
         for tid, entries in by_team.items():
@@ -373,6 +375,7 @@ def lineup_metrics(api: Espn, year: int, data: dict, counted: set, complete: boo
             starters = [e for e in entries if e["slot"] not in NON_STARTER_SLOTS]
             bench = [e for e in entries if e["slot"] == BENCH_SLOT]
             for s in starters:
+                pos_pts[tid][s["pos"]] += s["actual"]
                 ss_t[tid] += 1
                 if not any(b["actual"] > s["actual"] and s["slot"] in b["eligible"] for b in bench):
                     ss_c[tid] += 1
@@ -381,7 +384,8 @@ def lineup_metrics(api: Espn, year: int, data: dict, counted: set, complete: boo
                     if after and (after["slot"] == IR_SLOT
                                   or (not after["played"] and byes.get(after["pro_team"]) != sp + 1)):
                         inj[tid] += 1
-    return {"ssC": ss_c, "ssT": ss_t, "inj": inj, "rosters": rosters}
+    return {"ssC": ss_c, "ssT": ss_t, "inj": inj, "rosters": rosters,
+            "posPts": {tid: {p: round(v, 2) for p, v in by.items()} for tid, by in pos_pts.items()}}
 
 
 def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
@@ -412,7 +416,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             "playoffs": (seed is not None and seed <= playoff_teams) if complete and playoff_teams else None,
             "last": (finish == size) if finish else None,
             "champ": (finish == 1) if finish else None,
-            "inj": None, "ssC": None, "ssT": None, "r1Bust": None, "lateHits": None,
+            "inj": None, "ssC": None, "ssT": None, "r1Bust": None, "lateHits": None, "posPts": None,
         }
 
     # Matchups: records, head-to-head games, and all-play expected wins
@@ -478,6 +482,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             did_box, rosters = True, lm["rosters"]
             for tid, k in key_of.items():
                 lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
+                lines[k]["posPts"] = lm["posPts"].get(tid)
 
     # Trades: completed trades from the league's Recent Activity feed. ESPN only keeps that feed for the
     # current season, so earlier seasons come back empty.
@@ -526,11 +531,24 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             elif p.get("roundId", 0) >= LATE_ROUND and rank is not None and rank <= GEM_TOP.get(s["pos"], 0):
                 lines[k]["lateHits"] += 1
 
+    # Every pick, for the Draft and Tendencies tabs. Finish ranks only once the season is over.
+    finish_rank = position_ranks(stats, lambda p: stats[p]["total"]) if stats and complete else {}
+    draft = []
+    for p in picks:
+        k, s = key_of.get(p.get("teamId")), (stats or {}).get(p["playerId"], {})
+        if k is None:
+            continue
+        draft.append({"m": k, "r": p.get("roundId"), "p": p.get("overallPickNumber") or p.get("id"),
+                      "pid": p["playerId"], "name": s.get("name") or f"Player {p['playerId']}",
+                      "pos": POSITION_NAMES.get(s.get("pos"), "?"), "rank": finish_rank.get(p["playerId"]),
+                      "pts": round(s["total"], 1) if s.get("total") is not None and complete else None,
+                      "keeper": bool(p.get("keeper"))})
+
     trade_report = analyze_trades(trades, stats, key_of, results, rosters, last_sp) if trades and stats else []
 
     return {"v": CACHE_VERSION, "year": year, "size": size, "complete": complete, "boxScores": did_box,
             "playoffTeams": playoff_teams, "name": (data.get("settings") or {}).get("name"),
-            "lines": lines, "games": games, "trades": trade_report, "tradeCheck": diag}
+            "lines": lines, "games": games, "trades": trade_report, "tradeCheck": diag, "draft": draft}
 
 
 # ---------- Whole league ----------
@@ -564,7 +582,7 @@ def assemble(league_id: int, results: list[dict]) -> dict:
     idx = {k: i for i, k in enumerate(order)}
     ix = lambda k: idx[alias.get(k, k)]  # noqa: E731
 
-    seasons, sizes, playoff_teams, games, trades = {}, {}, {}, [], []
+    seasons, sizes, playoff_teams, games, trades, draft = {}, {}, {}, [], [], []
     for r in results:
         row = [None] * len(order)
         for k, ln in r["lines"].items():
@@ -574,6 +592,7 @@ def assemble(league_id: int, results: list[dict]) -> dict:
         playoff_teams[str(r["year"])] = r.get("playoffTeams")
         games += [{"y": r["year"], "wk": g["wk"], "a": ix(g["a"]), "b": ix(g["b"]),
                    "sa": g["sa"], "sb": g["sb"], "po": g["po"]} for g in r["games"]]
+        draft += [{**d, "y": r["year"], "m": ix(d["m"])} for d in r.get("draft", [])]
         for t in r.get("trades", []):
             trades.append({"y": r["year"], "wk": t["wk"], "date": t["date"], "sides": [
                 {**s, "m": ix(s["m"]), "got": [{**g, "from": ix(g["from"]) if g["from"] else None} for g in s["got"]]}
@@ -591,6 +610,7 @@ def assemble(league_id: int, results: list[dict]) -> dict:
         "seasons": seasons,
         "games": games,
         "trades": trades,
+        "draft": draft,
         "tradeCheck": {str(r["year"]): r.get("tradeCheck") for r in results},
         "previousLeagues": [{"id": pid, "first": a, "last": b} for pid, a, b in PREVIOUS_LEAGUES
                             if any(r.get("leagueId") == pid for r in results)],
