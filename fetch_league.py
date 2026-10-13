@@ -32,15 +32,22 @@ IR_SLOT = 21
 NON_STARTER_SLOTS = {BENCH_SLOT, IR_SLOT}
 PLAYER_SLOT_IDS = [0, 2, 4, 6, 16, 17]  # QB, RB, WR, TE, D/ST, K
 
-TOP_AT_POSITION = 20        # "top 20 at position"
+TOP_AT_POSITION = 20        # first-round bust: finished outside the top 20 at their position
+GEM_TOP = {1: 12, 4: 12}    # late gem: QB and TE must finish top 12; everyone else top 20
 LATE_ROUND = 4              # drafted outside the top 3 rounds
+POSITION_NAMES = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
+PLAYER_POOL = 600           # top players by season points pulled for rankings (covers 40+ deep at every position)
+
+# Display names that belong to one person who shows up under more than one ESPN account
+# (for example after changing the email on their ESPN login). Each inner list is one person.
+SAME_PERSON = [["Nathan G."]]
 BOX_SCORES_FROM = 2019      # ESPN only serves lineups/box scores from 2019 on
 INJURY_SHARE = 0.4          # starter scored under 40% of projection...
 INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
                             # ...and missed the next week (IR slot or no stats, not a bye)
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 4              # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 5            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
@@ -127,44 +134,118 @@ def owner_keys(teams: list[dict]) -> dict[int, str]:
     return keys
 
 
-def season_total(player: dict, year: int) -> float:
-    for s in player.get("stats", []):
-        if s.get("seasonId") == year and s.get("statSourceId") == 0 and s.get("statSplitTypeId") == 0:
-            return s.get("appliedTotal", 0.0)
-    return 0.0
-
-
-def position_ranks(api: Espn, year: int, drafted: set[int]) -> dict[int, int]:
-    """Season-long fantasy points rank within each player's position, in this league's scoring."""
-    filt = {"players": {
-        "filterSlotIds": {"value": PLAYER_SLOT_IDS},
-        "filterStatsForSourceIds": {"value": [0]},
-        "filterStatsForSplitTypeIds": {"value": [0]},
-        "sortAppliedStatTotal": {"sortAsc": False, "sortPriority": 1, "value": f"00{year}"},
-        "limit": 1500,
-    }}
+def player_stats(api: Espn, year: int, needed: set[int]) -> dict[int, dict]:
+    """Season total and week-by-week fantasy points for the top players (plus any we need), in this league's scoring."""
     sort = {"sortAsc": False, "sortPriority": 1, "value": f"00{year}"}
-    filt["players"]["sortAppliedStatTotal"] = sort
-    data = api.league(year, ["kona_player_info"], filt=filt) or {}
-    players = {p["id"]: p.get("player", p) for p in data.get("players", [])}
-    missing = [pid for pid in drafted if pid not in players]
+    stat_filters = {"filterStatsForSourceIds": {"value": [0]}, "filterStatsForSplitTypeIds": {"value": [0, 1]}}
+    data = api.league(year, ["kona_player_info"], filt={"players": {
+        "filterSlotIds": {"value": PLAYER_SLOT_IDS}, **stat_filters, "sortAppliedStatTotal": sort, "limit": PLAYER_POOL}}) or {}
+    raw = {p["id"]: p.get("player", p) for p in data.get("players", [])}
+    missing = [pid for pid in needed if pid not in raw]
     if missing:  # ESPN rejects a limit without a sort, so send both
         more = api.league(year, ["kona_player_info"], filt={"players": {
-            "filterIds": {"value": missing}, "sortAppliedStatTotal": sort, "limit": len(missing)}}) or {}
-        players.update({p["id"]: p.get("player", p) for p in more.get("players", [])})
-    if not players:
+            "filterIds": {"value": missing}, **stat_filters, "sortAppliedStatTotal": sort, "limit": len(missing)}}) or {}
+        raw.update({p["id"]: p.get("player", p) for p in more.get("players", [])})
+    if not raw:
         raise RuntimeError("ESPN returned no player stats")
 
+    out = {}
+    for pid, pl in raw.items():
+        total, weeks = 0.0, {}
+        for s in pl.get("stats", []):
+            if s.get("seasonId") != year or s.get("statSourceId") != 0:
+                continue
+            if s.get("statSplitTypeId") == 0:
+                total = s.get("appliedTotal", 0.0)
+            elif s.get("statSplitTypeId") == 1 and s.get("scoringPeriodId"):
+                weeks[s["scoringPeriodId"]] = s.get("appliedTotal", 0.0)
+        out[pid] = {"name": pl.get("fullName") or f"Player {pid}", "pos": pl.get("defaultPositionId"),
+                    "total": total, "weeks": weeks}
+    return out
+
+
+def position_ranks(stats: dict[int, dict], points) -> dict[int, int]:
+    """Rank every player within their position by points(player) (highest = 1)."""
     by_pos = defaultdict(list)
-    for pid, pl in players.items():
-        by_pos[pl.get("defaultPositionId")].append((season_total(pl, year), pid))
-    ranks, pos = {}, {}
-    for position, entries in by_pos.items():
+    for pid, s in stats.items():
+        by_pos[s["pos"]].append((points(pid), pid))
+    ranks = {}
+    for entries in by_pos.values():
         entries.sort(reverse=True)
         for n, (_, pid) in enumerate(entries, 1):
             ranks[pid] = n
-            pos[pid] = position
-    return {"rank": ranks, "pos": pos}
+    return ranks
+
+
+def fetch_trades(api: Espn, year: int, last_sp: int) -> list[dict]:
+    """Executed trades for the season: which players moved, between which ESPN teams, and in which week."""
+    found, kinds = {}, defaultdict(int)
+    for sp in range(1, last_sp + 1):
+        try:
+            resp = api.league(year, ["mTransactions2"], {"scoringPeriodId": sp}) or {}
+        except Exception as e:  # noqa: BLE001
+            log(f"  {year} week {sp}: couldn't load transactions ({e})")
+            continue
+        for t in resp.get("transactions", []):
+            kinds[f"{t.get('type')}/{t.get('status')}"] += 1
+            if not str(t.get("type", "")).startswith("TRADE") or t.get("status") != "EXECUTED":
+                continue
+            items = [i for i in t.get("items", []) if i.get("type") == "TRADE" and i.get("playerId")]
+            if not items:
+                continue
+            moves = tuple(sorted((i["playerId"], i.get("fromTeamId"), i.get("toTeamId")) for i in items))
+            if moves not in found:  # a proposal and its acceptance can both show as executed
+                found[moves] = {"sp": t.get("scoringPeriodId") or sp,
+                                "date": t.get("processDate") or t.get("proposedDate"),
+                                "moves": [{"pid": p, "from": f, "to": to} for p, f, to in moves]}
+    log(f"  {year}: {len(found)} trades; transaction types seen: {dict(kinds) or 'none'}")
+    return sorted(found.values(), key=lambda t: (t["sp"], t["date"] or 0))
+
+
+def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int, str],
+                   results: dict[int, dict[int, float]], rosters: dict | None, last_sp: int) -> list[dict]:
+    """For each trade side: what they got, how those players ranked before vs after, and what it did for the team."""
+    window_cache = {}
+
+    def window_points(pid, lo, hi):
+        return sum(v for w, v in stats[pid]["weeks"].items() if lo <= w <= hi) if pid in stats else 0.0
+
+    def ranks_for(lo, hi):
+        if (lo, hi) not in window_cache:
+            window_cache[(lo, hi)] = position_ranks(stats, lambda p: window_points(p, lo, hi))
+        return window_cache[(lo, hi)]
+
+    def record(tid, lo, hi):
+        res = [v for w, v in results.get(tid, {}).items() if lo <= w <= hi]
+        return [sum(1 for v in res if v == 1), sum(1 for v in res if v == 0), sum(1 for v in res if v == 0.5)]
+
+    out = []
+    for t in trades:
+        wk = t["sp"]
+        before, after = ranks_for(1, wk - 1) if wk > 1 else {}, ranks_for(wk, last_sp)
+        sides = []
+        for tid in sorted({m["to"] for m in t["moves"]} | {m["from"] for m in t["moves"]}):
+            if tid not in key_of:
+                continue
+            got = []
+            for m in (m for m in t["moves"] if m["to"] == tid):
+                pid, s = m["pid"], stats.get(m["pid"], {})
+                started = None
+                if rosters:
+                    started = round(sum(e["actual"] for sp, by_team in rosters.items() if sp >= wk
+                                        for e in by_team.get(tid, []) if e["id"] == pid and e["slot"] not in NON_STARTER_SLOTS), 2)
+                got.append({"pid": pid, "name": s.get("name", f"Player {pid}"), "pos": POSITION_NAMES.get(s.get("pos"), "?"),
+                            "from": key_of.get(m["from"]),
+                            "rankBefore": before.get(pid), "rankAfter": after.get(pid) if pid in stats else None,
+                            "ptsBefore": round(window_points(pid, 1, wk - 1), 2), "ptsAfter": round(window_points(pid, wk, last_sp), 2),
+                            "started": started})
+            sides.append({"m": key_of[tid], "got": got,
+                          "started": round(sum(g["started"] or 0 for g in got), 2) if rosters else None,
+                          "after": round(sum(g["ptsAfter"] for g in got), 2),
+                          "recBefore": record(tid, 1, wk - 1), "recAfter": record(tid, wk, 99)})
+        if len(sides) >= 2:
+            out.append({"wk": wk, "date": t["date"], "sides": sides})
+    return out
 
 
 def parse_entry(entry: dict, sp: int) -> dict:
@@ -249,7 +330,7 @@ def lineup_metrics(api: Espn, year: int, data: dict, counted: set, complete: boo
                     if after and (after["slot"] == IR_SLOT
                                   or (not after["played"] and byes.get(after["pro_team"]) != sp + 1)):
                         inj[tid] += 1
-    return {"ssC": ss_c, "ssT": ss_t, "inj": inj}
+    return {"ssC": ss_c, "ssT": ss_t, "inj": inj, "rosters": rosters}
 
 
 def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
@@ -290,6 +371,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
     eliminated_after = {}  # team -> matchup period they were knocked out in
 
     games, weekly, counted, tiers = [], defaultdict(dict), set(), defaultdict(int)
+    results = defaultdict(dict)  # team -> regular-season matchup period -> 1 win, 0 loss, 0.5 tie
     for m in sorted(data.get("schedule", []), key=lambda m: m.get("matchupPeriodId", 0)):
         home, away = m.get("home"), m.get("away")
         if not home or not away or m.get("winner") == "UNDECIDED":
@@ -318,6 +400,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                 ln["pf"] = round(ln["pf"] + mine, 2)
                 ln["w" if mine > theirs else "l" if mine < theirs else "t"] += 1
                 weekly[mp][tid] = mine
+                results[tid][mp] = 1 if mine > theirs else 0 if mine < theirs else 0.5
     for scores in weekly.values():
         for tid, pts in scores.items():
             others = [p for o, p in scores.items() if o != tid]
@@ -329,32 +412,45 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
     log(f"  {year}: {len(games)} games counted, {sum(g['po'] for g in games)} playoff; "
         f"playoff matchups by tier: {dict(tiers) or 'none found'}")
 
-    # Draft: first-round busts and late-round top-20 finishers (finished seasons only)
+    status = data.get("status") or {}
+    last_sp = (status.get("finalScoringPeriod") if complete else (status.get("latestScoringPeriod") or 1) - 1) or 17
+
+    # Trades (needs the newer API, 2018 on)
+    trades = []
+    if year >= 2018:
+        try:
+            trades = fetch_trades(api, year, last_sp)
+        except Exception as e:  # noqa: BLE001
+            log(f"  {year}: couldn't load trades ({e})")
+
+    # Player points: season totals for the draft, week by week for trades
     picks = (data.get("draftDetail") or {}).get("picks") or []
     if not picks:
         log(f"  {year}: ESPN returned no draft picks; skipping draft metrics")
-    if picks and complete:
+    stats = None
+    if picks or trades:
         try:
-            ranks = position_ranks(api, year, {p["playerId"] for p in picks})
+            stats = player_stats(api, year, {p["playerId"] for p in picks} | {m["pid"] for t in trades for m in t["moves"]})
         except Exception as e:  # noqa: BLE001
-            log(f"  {year}: couldn't load player season totals ({e}); skipping draft metrics")
-            ranks = None
-        if ranks is not None:
-            for ln in lines.values():
-                ln["r1Bust"], ln["lateHits"] = 0, 0
-            for p in picks:
-                k = key_of.get(p.get("teamId"))
-                if k is None or ranks["pos"].get(p["playerId"]) in DRAFT_SKIP_POSITIONS:
-                    continue
-                rank = ranks["rank"].get(p["playerId"])
-                top = rank is not None and rank <= TOP_AT_POSITION
-                if p.get("roundId") == 1 and not top:
-                    lines[k]["r1Bust"] += 1
-                elif p.get("roundId", 0) >= LATE_ROUND and top:
-                    lines[k]["lateHits"] += 1
+            log(f"  {year}: couldn't load player stats ({e}); skipping draft and trade metrics")
+
+    # Draft: first-round busts and late-round gems (finished seasons only)
+    if picks and complete and stats:
+        season_rank = position_ranks(stats, lambda p: stats[p]["total"])
+        for ln in lines.values():
+            ln["r1Bust"], ln["lateHits"] = 0, 0
+        for p in picks:
+            k, s = key_of.get(p.get("teamId")), stats.get(p["playerId"])
+            if k is None or (s and s["pos"] in DRAFT_SKIP_POSITIONS):
+                continue
+            rank = season_rank.get(p["playerId"])  # not in the pool at all = far outside the top 20
+            if p.get("roundId") == 1 and (rank is None or rank > TOP_AT_POSITION):
+                lines[k]["r1Bust"] += 1
+            elif p.get("roundId", 0) >= LATE_ROUND and rank is not None and rank <= GEM_TOP.get(s["pos"], TOP_AT_POSITION):
+                lines[k]["lateHits"] += 1
 
     # Weekly lineups: start/sit and mid-game injuries
-    did_box = False
+    did_box, rosters = False, None
     if box_scores and year >= BOX_SCORES_FROM:
         try:
             lm = lineup_metrics(api, year, data, counted, complete)
@@ -362,34 +458,62 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             log(f"  {year}: couldn't load box scores ({e}); skipping start/sit and injuries")
             lm = None
         if lm:
-            did_box = True
+            did_box, rosters = True, lm["rosters"]
             for tid, k in key_of.items():
                 lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
 
+    trade_report = analyze_trades(trades, stats, key_of, results, rosters, last_sp) if trades and stats else []
+
     return {"v": CACHE_VERSION, "year": year, "size": size, "complete": complete, "boxScores": did_box,
-            "name": (data.get("settings") or {}).get("name"), "lines": lines, "games": games}
+            "playoffTeams": playoff_teams, "name": (data.get("settings") or {}).get("name"),
+            "lines": lines, "games": games, "trades": trade_report}
 
 
 # ---------- Whole league ----------
 
+def person_aliases(results: list[dict]) -> dict[str, str]:
+    """Map every ESPN owner key to one key per person, merging the accounts listed in SAME_PERSON."""
+    group_of = {name.strip().lower(): n for n, names in enumerate(SAME_PERSON) for name in names}
+    canonical, alias = {}, {}
+    for r in results:
+        seen_this_season = set()
+        for k, ln in r["lines"].items():
+            group = group_of.get((ln["manager"] or "").strip().lower())
+            target = canonical.setdefault(group, k) if group is not None else k
+            if target in seen_this_season:  # two of these accounts in one season can't be the same person
+                log(f"  {r['year']}: '{ln['manager']}' appears twice; keeping those teams separate")
+                target = k
+            alias.setdefault(k, target)
+            seen_this_season.add(alias[k])
+    return alias
+
+
 def assemble(league_id: int, results: list[dict]) -> dict:
+    alias = person_aliases(results)
     order, info = [], {}
     for r in results:  # oldest to newest, so the latest name and team name win
         for k, ln in r["lines"].items():
+            k = alias[k]
             if k not in info:
                 order.append(k)
             info[k] = {"name": ln["manager"], "team": ln["team"]}
     idx = {k: i for i, k in enumerate(order)}
+    ix = lambda k: idx[alias.get(k, k)]  # noqa: E731
 
-    seasons, sizes, games = {}, {}, []
+    seasons, sizes, playoff_teams, games, trades = {}, {}, {}, [], []
     for r in results:
         row = [None] * len(order)
         for k, ln in r["lines"].items():
-            row[idx[k]] = {f: ln[f] for f in LINE_FIELDS}
+            row[ix(k)] = {f: ln[f] for f in LINE_FIELDS}
         seasons[str(r["year"])] = row
         sizes[str(r["year"])] = r["size"]
-        games += [{"y": r["year"], "wk": g["wk"], "a": idx[g["a"]], "b": idx[g["b"]],
+        playoff_teams[str(r["year"])] = r.get("playoffTeams")
+        games += [{"y": r["year"], "wk": g["wk"], "a": ix(g["a"]), "b": ix(g["b"]),
                    "sa": g["sa"], "sb": g["sb"], "po": g["po"]} for g in r["games"]]
+        for t in r.get("trades", []):
+            trades.append({"y": r["year"], "wk": t["wk"], "date": t["date"], "sides": [
+                {**s, "m": ix(s["m"]), "got": [{**g, "from": ix(g["from"]) if g["from"] else None} for g in s["got"]]}
+                for s in t["sides"]]})
 
     box_years = [r["year"] for r in results if r["boxScores"]]
     return {
@@ -398,9 +522,11 @@ def assemble(league_id: int, results: list[dict]) -> dict:
         "managers": [info[k] for k in order],
         "years": [r["year"] for r in results],
         "sizes": sizes,
+        "playoffTeams": playoff_teams,
         "boxScoresFrom": min(box_years) if box_years else None,
         "seasons": seasons,
         "games": games,
+        "trades": trades,
     }
 
 
