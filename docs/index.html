@@ -116,6 +116,33 @@ table { border-collapse: collapse; width: 100%; }
 @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
 
 /* Metric tabs */
+[hidden] { display: none !important; }
+
+/* Page tabs */
+.views { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.views button { background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 10px 14px 9px; cursor: pointer;
+  font: 700 1.1rem/1 var(--font-display); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.views button:hover { color: var(--ink); }
+.views button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.view { display: grid; gap: 28px; }
+
+/* Records */
+.records { display: grid; gap: 28px; }
+.rec-group { display: grid; gap: 12px; }
+.rec-group > h3 { font-size: 1.05rem; color: var(--muted); }
+.rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 12px; }
+.rec-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 4px; align-content: start; min-width: 0; }
+.rec-card .rt { font: 600 .72rem/1.2 var(--font-body); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.rec-card .rv { font: 700 2.1rem/1.05 var(--font-display); font-variant-numeric: tabular-nums; }
+.rec-card .rh { font-weight: 600; }
+.rec-card .rc { font-size: .84rem; color: var(--muted); }
+.rec-card ol { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); display: grid; gap: 4px; font-size: .82rem; }
+.rec-card li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr) auto; gap: 6px; align-items: baseline; }
+.rec-card li .n { color: var(--muted); font-family: var(--font-data); }
+.rec-card li .w { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-card li .x { color: var(--muted); font-weight: 400; }
+.rec-card li .v { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+
 .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .tabs button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; font-size: .82rem; cursor: pointer; }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
@@ -234,6 +261,13 @@ svg text { font-family: var(--font-body); }
     <div class="connect-body" id="dataBody"></div>
   </details>
 
+  <nav class="views" role="tablist" aria-label="Sections">
+    <button role="tab" id="tab-dashboard" data-view="dashboard" aria-selected="true">Dashboard</button>
+    <button role="tab" id="tab-trades" data-view="trades" aria-selected="false">Trades</button>
+    <button role="tab" id="tab-records" data-view="records" aria-selected="false">Records</button>
+  </nav>
+
+  <div class="view" id="view-dashboard" role="tabpanel" aria-labelledby="tab-dashboard">
   <div class="summary" id="summary"></div>
 
   <section class="panel">
@@ -265,18 +299,6 @@ svg text { font-family: var(--font-body); }
     <div class="card scroll-x"><table class="matrix" id="matrix"></table></div>
   </section>
 
-  <section class="panel" id="trades">
-    <div class="panel-head">
-      <h2>Trade analyzer</h2>
-      <div class="trade-tools">
-        <label for="tradeMine"><input type="checkbox" id="tradeMine"> <span id="tradeMineLabel">Only this manager's trades</span></label>
-      </div>
-    </div>
-    <p class="metric-desc">Each player's positional rank by points scored before the trade vs. from the trade week to season's end. A trade is won by the side whose new players scored more points in its starting lineup. Ranks and points use your league's scoring.</p>
-    <div class="card scroll-x" style="padding:0"><table class="scorecard" id="scorecard"></table></div>
-    <div class="trade-list" id="tradeList"></div>
-  </section>
-
   <section class="panel">
     <div class="panel-head"><h2>How each metric is calculated</h2></div>
     <div class="card endpoint">
@@ -286,6 +308,31 @@ svg text { font-family: var(--font-body); }
     </div>
     <div class="method" id="method"></div>
   </section>
+  </div>
+
+  <div class="view" id="view-trades" role="tabpanel" aria-labelledby="tab-trades" hidden>
+  <section class="panel" id="trades">
+    <div class="panel-head">
+      <h2 id="tradesTitle">Trade analyzer</h2>
+      <div class="trade-tools">
+        <label for="tradeMine"><input type="checkbox" id="tradeMine"> <span id="tradeMineLabel">Only this manager's trades</span></label>
+      </div>
+    </div>
+    <p class="metric-desc">This season's completed trades, from your league's Recent Activity feed. Each player's positional rank by points scored before the trade vs. from the trade week on. A trade is won by the side whose new players scored more points in its starting lineup. Ranks and points use your league's scoring. ESPN doesn't keep trade history for past seasons.</p>
+    <div class="card scroll-x" style="padding:0"><table class="scorecard" id="scorecard"></table></div>
+    <div class="trade-list" id="tradeList"></div>
+  </section>
+  </div>
+
+  <div class="view" id="view-records" role="tabpanel" aria-labelledby="tab-records" hidden>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Records</h2>
+      <span class="muted" style="font-size:.85rem" id="recordsNote"></span>
+    </div>
+    <div class="records" id="records"></div>
+  </section>
+  </div>
 </div>
 <div id="tip" hidden></div>
 
@@ -380,19 +427,20 @@ svg text { font-family: var(--font-body); }
   }
 
   // ---------- State ----------
-  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false };
-  const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeMine: state.tradeMine })); } catch (e) {} };
+  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false, view: "dashboard" };
+  const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeMine: state.tradeMine, view: state.view })); } catch (e) {} };
   const inRange = y => y >= state.from && y <= state.to;
   const isNum = v => v !== null && v !== undefined && !Number.isNaN(v);
 
   // ---------- Aggregation over the selected season range ----------
   function aggregate() {
     const ys = D.years.filter(inRange);
-    const rec = D.managers.map(() => ({ w: 0, l: 0, t: 0, pf: 0, pa: 0 }));
+    const rec = D.managers.map(() => ({ w: 0, l: 0, t: 0, pf: 0, pa: 0, pw: 0, pl: 0 }));
     D.games.forEach(g => {
       if (!inRange(g.y)) return;
       if (g.sa > g.sb) { rec[g.a].w++; rec[g.b].l++; } else if (g.sa < g.sb) { rec[g.a].l++; rec[g.b].w++; } else { rec[g.a].t++; rec[g.b].t++; }
       rec[g.a].pf += g.sa; rec[g.a].pa += g.sb; rec[g.b].pf += g.sb; rec[g.b].pa += g.sa;
+      if (g.po) { const [win, lose] = g.sa >= g.sb ? [g.a, g.b] : [g.b, g.a]; rec[win].pw++; rec[lose].pl++; }
     });
     return D.managers.map((m, i) => {
       const lines = ys.map(y => { const l = (D.seasons[y] || [])[i]; return l ? { y, ...l, label: finishLabel(y, l) } : null; }).filter(Boolean);
@@ -406,6 +454,7 @@ svg text { font-family: var(--font-body); }
         best: fin.length ? Math.min(...fin) : null, worst: fin.length ? Math.max(...fin) : null,
         w: r.w, l: r.l, t: r.t, winPct: played ? (r.w + r.t / 2) / played : null,
         pf: played ? r.pf : null, pa: played ? r.pa : null,
+        pw: r.pw, pl: r.pl, poPct: r.pw + r.pl ? r.pw / (r.pw + r.pl) : null,
         sacko: finished.length ? finished.filter(l => l.label === "Bottom 4").length : null,
         regW: (sum("w") || 0) + (sum("t") || 0) / 2, xw: sum("xw") || 0,
         wae: g ? ((sum("w") || 0) + (sum("t") || 0) / 2 - (sum("xw") || 0)) / g * 100 : null,
@@ -452,6 +501,8 @@ svg text { font-family: var(--font-body); }
       desc: "Mean final standing per finished season, after playoffs. 1st is the champion. The line shows best to worst finish." },
     { key: "record", label: "Record", short: "Total record", better: 1, sortVal: r => r.winPct, fmt: (v, r) => recStr(r.w, r.l, r.t), noChart: true,
       desc: "All-time wins and losses, regular season and championship bracket. See the head-to-head grid for each pairing." },
+    { key: "poRecord", label: "Playoff record", short: "Playoff record", better: 1, sortVal: r => r.poPct, fmt: (v, r) => `${r.pw}-${r.pl}`, noChart: true,
+      desc: "Wins and losses in championship-bracket games. Once a team is knocked out, its consolation games don't count." },
     { key: "pf", label: "Points for", short: "Total points for", better: 1, fmt: fmtPts,
       desc: "All-time points scored, regular season and championship bracket." },
     { key: "pa", label: "Points against", short: "Total points against", better: 0, fmt: fmtPts,
@@ -468,8 +519,8 @@ svg text { font-family: var(--font-body); }
       desc: "Share of lineup slots where the starter outscored every eligible bench player for that slot. Box scores exist from 2019 on." },
     { key: "busts", label: "R1 busts", short: "1st-rounders outside top 20", better: -1, fmt: fmtInt,
       desc: "First-round picks who finished outside the top 20 at their position in season-long fantasy points." },
-    { key: "lateHits", label: "Late gems", short: "Top finishers drafted after Rd 3", better: 1, fmt: fmtInt,
-      desc: "Players drafted in round 4 or later who finished top 20 at their position (top 12 for QBs and TEs). Kickers and defenses are left out, since nearly all of them go late." },
+    { key: "lateHits", label: "Late gems", short: "Top finishers drafted Rd 7+", better: 1, fmt: fmtInt,
+      desc: "Players drafted in round 7 or later who finished top 20 at RB or WR, or top 8 at QB or TE. Kickers and defenses are left out." },
   ];
   const M = Object.fromEntries(METRICS.map(m => [m.key, m]));
   const val = (m, r) => { const v = m.sortVal ? m.sortVal(r) : r[m.key]; return isNum(v) ? v : null; };
@@ -679,11 +730,12 @@ svg text { font-family: var(--font-body); }
       pf: "Sum of your score in every counted game from <code>schedule[]</code>: regular season plus the championship bracket.",
       pa: "Sum of your opponents' scores in those same games.",
       sacko: "Finished seasons where <code>playoffSeed</code> (final regular-season standing) was in the bottom four of the league.",
-      trades: "<code>mTransactions2</code> for each week: executed trades and which players moved. Weekly player points from <code>kona_player_info</code> give positional ranks before and after; weekly box scores give points each player scored in the new team's starting lineup.",
-      inj: "Weekly box scores (<code>mBoxscore</code> per <code>scoringPeriodId</code>): starters who played, scored under 40% of a 5+ point projection, and the next week sat on IR or recorded no stats outside their bye. ESPN has no in-game injury flag, so this is an estimate.",
+      trades: "Completed trades from the league's Recent Activity feed (<code>kona_league_communication</code>), the same list as ESPN's Recent Activity page. Each trade counts from the first week that kicked off after it went through. Weekly player points from <code>kona_player_info</code> give positional ranks before and after; weekly box scores give points each player scored in the new team's starting lineup.",
+      inj: "Weekly box scores (<code>mBoxscore</code> per <code>scoringPeriodId</code>): starters who played, scored under 40% of a 5+ point projection, and the next week sat on IR or recorded no stats outside their bye. ESPN only keeps a player's current injury tag, so this is an estimate.",
       ss: "Weekly <code>rosterForCurrentScoringPeriod</code>: a starting slot is correct when no bench player eligible for it (<code>eligibleSlots</code>) scored more.",
       busts: "<code>mDraftDetail</code> picks with <code>roundId = 1</code>, ranked within position by season fantasy points from <code>kona_player_info</code>.",
-      lateHits: "<code>mDraftDetail</code> picks with <code>roundId ≥ 4</code> whose season total ranks top 20 at their position (top 12 for QB and TE), excluding K and D/ST.",
+      poRecord: "Championship-bracket games from <code>schedule[]</code>. A team stops counting once it loses, so consolation games are left out.",
+      lateHits: "<code>mDraftDetail</code> picks with <code>roundId ≥ 7</code> whose season total ranks top 20 at RB or WR, or top 8 at QB or TE. K and D/ST are left out.",
     };
     $("method").innerHTML = METRICS.map(m => `<div class="card"><h3>${m.short}</h3><p class="muted" style="font-size:.88rem">${how[m.key]}</p></div>`).join("")
       + `<div class="card"><h3>Trade analyzer</h3><p class="muted" style="font-size:.88rem">${how.trades}</p></div>`;
@@ -699,7 +751,9 @@ svg text { font-family: var(--font-body); }
   }
 
   function renderTrades(rows) {
-    const trades = (D.trades || []).filter(t => inRange(t.y));
+    const season = Math.max(...D.years);  // ESPN only keeps trade history for the current season
+    const trades = (D.trades || []).filter(t => t.y === season);
+    $("tradesTitle").textContent = `Trade analyzer · ${season}`;
     const name = i => esc((D.managers[i] || {}).name || "Unknown");
     const sel = rows.find(r => r.i === state.sel);
     $("tradeMineLabel").textContent = `Only ${sel ? sel.name : "this manager"}'s trades`;
@@ -707,7 +761,7 @@ svg text { font-family: var(--font-body); }
 
     // Scorecard: one row per manager who traded in this range
     const card = {};
-    trades.forEach(t => {
+    trades.filter(t => !t.pending).forEach(t => {
       const sc = tradeScore(t);
       t.sides.forEach(s => {
         const c = card[s.m] || (card[s.m] = { n: 0, won: 0, lost: 0, even: 0, net: 0 });
@@ -719,7 +773,7 @@ svg text { font-family: var(--font-body); }
     const cardRows = Object.entries(card).sort((a, b) => b[1].net - a[1].net);
     $("scorecard").innerHTML = cardRows.length ? `<thead><tr><th>Manager</th><th>Trades</th><th>Won</th><th>Lost</th><th>Wash</th><th title="Started points gained minus started points given up">Net started pts</th></tr></thead><tbody>`
       + cardRows.map(([m, c]) => `<tr class="${+m === state.sel ? "sel" : ""}"><td>${name(+m)}</td><td>${c.n}</td><td>${c.won}</td><td>${c.lost}</td><td>${c.even}</td><td class="${c.net >= 0 ? "pos" : "neg"}">${c.net >= 0 ? "+" : "−"}${Math.abs(c.net).toFixed(1)}</td></tr>`).join("")
-      + `</tbody>` : `<tbody><tr><td class="empty">No trades in these seasons.</td></tr></tbody>`;
+      + `</tbody>` : `<tbody><tr><td class="empty">No trades yet this season.</td></tr></tbody>`;
 
     const shown = trades.filter(t => !state.tradeMine || t.sides.some(s => s.m === state.sel))
       .sort((a, b) => b.y - a.y || b.wk - a.wk);
@@ -727,17 +781,18 @@ svg text { font-family: var(--font-body); }
     const recFmt = r => r ? recStr(r[0], r[1], r[2]) : "—";
     $("tradeList").innerHTML = shown.length ? shown.map(t => {
       const sc = tradeScore(t), basis = sc.key === "started" ? "started pts" : "pts after trade";
-      const verdict = sc.winner === null ? `<span class="verdict">Wash · within ${CLOSE_CALL} ${basis}</span>`
+      const verdict = t.pending ? `<span class="verdict">Too early to judge · no games played since</span>`
+        : sc.winner === null ? `<span class="verdict">Wash · within ${CLOSE_CALL} ${basis}</span>`
         : `<span class="verdict"><b>${name(sc.winner)}</b> won by ${sc.margin.toFixed(1)} ${basis}</span>`;
       const sides = t.sides.map(s => {
         const got = s.got.length ? s.got.map(g => {
           const delta = isNum(g.rankBefore) && isNum(g.rankAfter) ? g.rankBefore - g.rankAfter : null;
           const cls = delta === null ? "" : delta > 0 ? "pos" : delta < 0 ? "neg" : "";
           return `<div class="got-row"><span class="pname">${esc(g.name)} <span class="muted">${esc(g.pos)}</span></span>`
-            + `<span class="rank ${cls}" data-tip="${esc(`Rank by points before the trade → from the trade week on<br>${g.ptsBefore} pts before · ${g.ptsAfter} pts after`)}">${rankStr(g.pos, g.rankBefore)} → ${rankStr(g.pos, g.rankAfter)}</span>`
+            + `<span class="rank ${cls}" data-tip="${esc(`Rank by points before the trade → from the trade week on<br>${g.ptsBefore} pts before · ${g.ptsAfter} pts after`)}">${rankStr(g.pos, g.rankBefore)} → ${t.pending ? "—" : rankStr(g.pos, g.rankAfter)}</span>`
             + `<span class="sub">${g.ptsAfter} pts after${isNum(g.started) ? ` · ${g.started} started for ${name(s.m)}` : ""}${isNum(g.from) ? ` · from ${name(g.from)}` : ""}</span></div>`;
         }).join("") : `<span class="muted">Nothing received</span>`;
-        return `<div class="side ${sc.winner === s.m ? "won" : ""}">
+        return `<div class="side ${!t.pending && sc.winner === s.m ? "won" : ""}">
           <div class="side-name"><b>${name(s.m)}</b><span class="muted" style="font-size:.78rem">received</span></div>
           <div class="got">${got}</div>
           <div class="side-totals">
@@ -751,7 +806,102 @@ svg text { font-family: var(--font-body); }
         <div class="trade-head"><span class="when">${t.y} · Week ${t.wk}</span>${verdict}</div>
         <div class="trade-sides">${sides}</div>
       </article>`;
-    }).join("") : `<div class="card empty">${trades.length ? "No trades for this manager in these seasons." : "No trades found in these seasons."}</div>`;
+    }).join("") : `<div class="card empty">${trades.length ? "No trades for this manager this season." : "No trades yet this season."}</div>`;
+  }
+
+  // ---------- Records ----------
+  const fmt2 = v => v.toFixed(2), fmtTot = v => v.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  function renderRecords() {
+    const nm = i => esc((D.managers[i] || {}).name || "Unknown");
+    const when = g => `${g.y} · ${g.po ? "Playoffs, wk" : "Week"} ${g.wk}`;
+    const games = D.games.filter(g => inRange(g.y));
+    const sides = games.flatMap(g => [{ g, m: g.a, o: g.b, s: g.sa, x: g.sb }, { g, m: g.b, o: g.a, s: g.sb, x: g.sa }]);
+    const wins = sides.filter(d => d.s > d.x), losses = sides.filter(d => d.s < d.x);
+    const top = (list, f, high = true, n = 5) => list.filter(d => isNum(f(d))).sort((p, q) => high ? f(q) - f(p) : f(p) - f(q)).slice(0, n);
+
+    // Finished regular seasons, one row per manager
+    const seasonPA = {};
+    games.filter(g => !g.po).forEach(g => { [[g.a, g.sb], [g.b, g.sa]].forEach(([m, x]) => { const k = g.y + ":" + m; seasonPA[k] = (seasonPA[k] || 0) + x; }); });
+    const seasonRows = D.years.filter(inRange).flatMap(y => (D.seasons[y] || []).map((l, m) => l && isNum(l.finish) ? {
+      y, m, pf: l.pf, pa: seasonPA[y + ":" + m], rec: recStr(l.w, l.l, l.t), pct: (l.w + (l.t || 0) / 2) / Math.max(1, l.w + l.l + (l.t || 0)),
+      wae: l.g ? ((l.w + (l.t || 0) / 2) - l.xw) / l.g * 100 : null } : null).filter(Boolean));
+
+    // All-time: streaks across seasons, titles, weekly highs and lows
+    const streaks = { w: [], l: [] };
+    D.managers.forEach((_, m) => {
+      const mine = sides.filter(d => d.m === m).sort((p, q) => p.g.y - q.g.y || p.g.wk - q.g.wk);
+      let run = null;
+      const close = () => { if (run) streaks[run.kind].push({ m, n: run.n, from: run.from, to: run.to }); run = null; };
+      mine.forEach(d => {
+        const kind = d.s > d.x ? "w" : d.s < d.x ? "l" : null;
+        if (!kind || (run && run.kind !== kind)) close();
+        if (!kind) return;
+        if (!run) run = { kind, n: 0, from: d.g };
+        run.n++; run.to = d.g;
+      });
+      close();
+    });
+    const weekly = {};
+    games.filter(g => !g.po).forEach(g => { const k = g.y + ":" + g.wk; (weekly[k] = weekly[k] || []).push([g.a, g.sa], [g.b, g.sb]); });
+    const highs = {}, lows = {};
+    Object.values(weekly).forEach(w => {
+      const hi = Math.max(...w.map(x => x[1])), lo = Math.min(...w.map(x => x[1]));
+      w.forEach(([m, s]) => { if (s === hi) highs[m] = (highs[m] || 0) + 1; if (s === lo) lows[m] = (lows[m] || 0) + 1; });
+    });
+    const counts = obj => Object.entries(obj).map(([m, n]) => ({ m: +m, n }));
+    const titles = counts(Object.fromEntries(D.managers.map((_, m) => [m, D.years.filter(inRange).filter(y => ((D.seasons[y] || [])[m] || {}).finish === 1).length])));
+    const span = r => r.from.y === r.to.y ? `${r.from.y}, wk ${r.from.wk}–${r.to.wk}` : `${r.from.y} wk ${r.from.wk} – ${r.to.y} wk ${r.to.wk}`;
+
+    const game = (title, list, f, high, opts) => ({ title, list: top(list, f, high), val: d => opts.val(d), who: d => nm(d.m), ctx: opts.ctx });
+    const groups = [
+      ["Single game", [
+        game("Most points in a game", sides, d => d.s, true, { val: d => fmt2(d.s), ctx: d => `${when(d.g)} vs ${nm(d.o)}` }),
+        game("Fewest points in a game", sides, d => d.s, false, { val: d => fmt2(d.s), ctx: d => `${when(d.g)} vs ${nm(d.o)}` }),
+        game("Most points against in a game", sides, d => d.x, true, { val: d => fmt2(d.x), ctx: d => `${when(d.g)} · scored by ${nm(d.o)}` }),
+        game("Largest margin of victory", wins, d => d.s - d.x, true, { val: d => "+" + fmt2(d.s - d.x), ctx: d => `Beat ${nm(d.o)} ${fmt2(d.s)}–${fmt2(d.x)} · ${when(d.g)}` }),
+        game("Closest win", wins, d => d.s - d.x, false, { val: d => "+" + fmt2(d.s - d.x), ctx: d => `Beat ${nm(d.o)} ${fmt2(d.s)}–${fmt2(d.x)} · ${when(d.g)}` }),
+        { title: "Highest-scoring game", list: top(games, g => g.sa + g.sb, true), val: g => fmt2(g.sa + g.sb),
+          who: g => `${nm(g.a)} vs ${nm(g.b)}`, ctx: g => `${fmt2(g.sa)}–${fmt2(g.sb)} · ${when(g)}` },
+        game("Most points in a loss", losses, d => d.s, true, { val: d => fmt2(d.s), ctx: d => `Lost to ${nm(d.o)} ${fmt2(d.s)}–${fmt2(d.x)} · ${when(d.g)}` }),
+        game("Fewest points in a win", wins, d => d.s, false, { val: d => fmt2(d.s), ctx: d => `Beat ${nm(d.o)} ${fmt2(d.s)}–${fmt2(d.x)} · ${when(d.g)}` }),
+      ]],
+      ["Season (finished regular seasons)", [
+        { title: "Most points in a season", list: top(seasonRows, r => r.pf, true), val: r => fmtTot(r.pf), who: r => nm(r.m), ctx: r => `${r.y} · ${r.rec}` },
+        { title: "Fewest points in a season", list: top(seasonRows, r => r.pf, false), val: r => fmtTot(r.pf), who: r => nm(r.m), ctx: r => `${r.y} · ${r.rec}` },
+        { title: "Most points against in a season", list: top(seasonRows, r => r.pa, true), val: r => fmtTot(r.pa), who: r => nm(r.m), ctx: r => `${r.y} · ${r.rec}` },
+        { title: "Fewest points against in a season", list: top(seasonRows, r => r.pa, false), val: r => fmtTot(r.pa), who: r => nm(r.m), ctx: r => `${r.y} · ${r.rec}` },
+        { title: "Best regular season", list: top(seasonRows, r => r.pct + r.pf / 1e6, true), val: r => r.rec, who: r => nm(r.m), ctx: r => `${r.y} · ${fmtTot(r.pf)} pts` },
+        { title: "Worst regular season", list: top(seasonRows, r => r.pct + r.pf / 1e6, false), val: r => r.rec, who: r => nm(r.m), ctx: r => `${r.y} · ${fmtTot(r.pf)} pts` },
+        { title: "Luckiest season", list: top(seasonRows, r => r.wae, true), val: r => fmtSigned(r.wae), who: r => nm(r.m), ctx: r => `${r.y} · ${r.rec} · wins above expected` },
+        { title: "Unluckiest season", list: top(seasonRows, r => r.wae, false), val: r => fmtSigned(r.wae), who: r => nm(r.m), ctx: r => `${r.y} · ${r.rec} · wins above expected` },
+      ]],
+      ["All time", [
+        { title: "Longest winning streak", list: top(streaks.w, r => r.n, true), val: r => `${r.n} W`, who: r => nm(r.m), ctx: span },
+        { title: "Longest losing streak", list: top(streaks.l, r => r.n, true), val: r => `${r.n} L`, who: r => nm(r.m), ctx: span },
+        { title: "Most championships", list: top(titles.filter(r => r.n), r => r.n, true), val: r => String(r.n), who: r => nm(r.m), ctx: () => "" },
+        { title: "Most weekly high scores", list: top(counts(highs), r => r.n, true), val: r => String(r.n), who: r => nm(r.m), ctx: () => "Top score of the week, regular season" },
+        { title: "Most weekly low scores", list: top(counts(lows), r => r.n, true), val: r => String(r.n), who: r => nm(r.m), ctx: () => "Lowest score of the week, regular season" },
+      ]],
+    ];
+    $("recordsNote").textContent = `${state.from === state.to ? state.from : `${state.from}–${state.to}`}. Games include the championship bracket. Use From and To to narrow the seasons.`;
+    $("records").innerHTML = groups.map(([name, cards]) => `<div class="rec-group"><h3>${name}</h3><div class="rec-grid">${cards.map(c => {
+      const [first, ...rest] = c.list;
+      if (!first) return `<div class="rec-card"><span class="rt">${c.title}</span><span class="rc">No games in these seasons.</span></div>`;
+      return `<div class="rec-card"><span class="rt">${c.title}</span><span class="rv">${c.val(first)}</span><span class="rh">${c.who(first)}</span>`
+        + `<span class="rc">${c.ctx(first)}</span>`
+        + (rest.length ? `<ol>${rest.map((d, k) => `<li data-tip="${esc(c.ctx(d))}"><span class="n">${k + 2}</span><span class="w">${c.who(d)}</span><span class="v">${c.val(d)}</span></li>`).join("")}</ol>` : "")
+        + `</div>`;
+    }).join("")}</div></div>`).join("");
+  }
+
+  function showView(v) {
+    if (!["dashboard", "trades", "records"].includes(v)) v = "dashboard";
+    state.view = v;
+    ["dashboard", "trades", "records"].forEach(k => {
+      $("view-" + k).hidden = k !== v;
+      $("tab-" + k).setAttribute("aria-selected", String(k === v));
+    });
+    save();
   }
 
   function render() {
@@ -760,7 +910,7 @@ svg text { font-family: var(--font-body); }
     if (!M[state.metric] || M[state.metric].noChart) state.metric = "avgFinish";
     if (!M[state.sortKey]) state.sortKey = "avgFinish";
     $("mgrSelect").innerHTML = rows.map(r => `<option value="${r.i}">${esc(r.name)} · ${esc(r.team)}</option>`).join("");
-    renderSummary(rows); renderBoard(rows); renderTabs(); renderChart(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows);
+    renderSummary(rows); renderBoard(rows); renderTabs(); renderChart(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows); renderRecords();
   }
 
   function init() {
@@ -775,7 +925,10 @@ svg text { font-family: var(--font-body); }
     $("toYear").onchange = e => { state.to = +e.target.value; if (state.to < state.from) { state.from = state.to; $("fromYear").value = state.from; } render(); };
     $("mgrSelect").onchange = e => select(+e.target.value);
     $("tradeMine").onchange = e => { state.tradeMine = e.target.checked; save(); render(); };
+    document.querySelectorAll(".views button").forEach(b => b.onclick = () => showView(b.dataset.view));
+    const fromLink = (location.hash || "").slice(1);
     renderData(); renderMethod(); render();
+    showView(["trades", "records"].includes(fromLink) ? fromLink : state.view);
   }
 
   (async () => {
