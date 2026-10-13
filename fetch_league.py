@@ -531,8 +531,8 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             elif p.get("roundId", 0) >= LATE_ROUND and rank is not None and rank <= GEM_TOP.get(s["pos"], 0):
                 lines[k]["lateHits"] += 1
 
-    # Every pick, for the Draft and Tendencies tabs. Finish ranks only once the season is over.
-    finish_rank = position_ranks(stats, lambda p: stats[p]["total"]) if stats and complete else {}
+    # Every pick, for the Draft tab. During the season, ranks and points are to date and the pick is marked live.
+    finish_rank = position_ranks(stats, lambda p: stats[p]["total"]) if stats else {}
     draft = []
     for p in picks:
         k, s = key_of.get(p.get("teamId")), (stats or {}).get(p["playerId"], {})
@@ -541,8 +541,8 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
         draft.append({"m": k, "r": p.get("roundId"), "p": p.get("overallPickNumber") or p.get("id"),
                       "pid": p["playerId"], "name": s.get("name") or f"Player {p['playerId']}",
                       "pos": POSITION_NAMES.get(s.get("pos"), "?"), "rank": finish_rank.get(p["playerId"]),
-                      "pts": round(s["total"], 1) if s.get("total") is not None and complete else None,
-                      "keeper": bool(p.get("keeper"))})
+                      "pts": round(s["total"], 1) if s.get("total") is not None else None,
+                      "keeper": bool(p.get("keeper")), "live": not complete})
 
     trade_report = analyze_trades(trades, stats, key_of, results, rosters, last_sp) if trades and stats else []
 
