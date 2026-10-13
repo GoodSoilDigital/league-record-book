@@ -42,12 +42,11 @@ PLAYER_POOL = 600           # top players by season points pulled for rankings (
 # (for example after changing the email on their ESPN login). Each inner list is one person.
 SAME_PERSON = [["Nathan G."]]
 BOX_SCORES_FROM = 2019      # ESPN only serves lineups/box scores from 2019 on
-INJURY_SHARE = 0.4          # starter scored under 40% of projection...
-INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
-                            # ...and missed the next week (IR slot or no stats, not a bye)
+# Injured mid-game: a starter who played, then recorded no stats at all the next week (not even a target)
+# or sat on IR, outside a bye. ESPN only keeps a player's current injury tag, so past tags can't be used.
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 6            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 8            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
@@ -204,6 +203,28 @@ def fetch_trades(api: Espn, year: int, last_sp: int) -> list[dict]:
     return sorted(found.values(), key=lambda t: (t["sp"], t["date"] or 0))
 
 
+def infer_trades(rosters: dict[int, dict[int, list]]) -> list[dict]:
+    """Trades read straight from weekly rosters: players who went directly from one team's roster to another's
+    between consecutive weeks, with players moving in both directions. Free-agent and waiver pickups pass
+    through the player pool, and offers that were never accepted never touch a roster, so neither shows up."""
+    out = []
+    weeks = sorted(rosters)
+    for prev, cur in zip(weeks, weeks[1:]):
+        if cur != prev + 1:
+            continue
+        owner_before = {e["id"]: tid for tid, entries in rosters[prev].items() for e in entries}
+        by_pair = defaultdict(list)
+        for tid, entries in rosters[cur].items():
+            for e in entries:
+                was = owner_before.get(e["id"])
+                if was is not None and was != tid:
+                    by_pair[frozenset((was, tid))].append({"pid": e["id"], "from": was, "to": tid})
+        for moves in by_pair.values():
+            if len({m["to"] for m in moves}) == 2:  # players went both ways
+                out.append({"sp": cur, "date": None, "moves": moves})
+    return out
+
+
 def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int, str],
                    results: dict[int, dict[int, float]], rosters: dict | None, last_sp: int) -> list[dict]:
     """For each trade side: what they got, how those players ranked before vs after, and what it did for the team."""
@@ -259,7 +280,7 @@ def parse_entry(entry: dict, sp: int) -> dict:
             continue
         if s.get("statSourceId") == 0:
             actual = s.get("appliedTotal", 0.0)
-            played = bool(s.get("stats"))
+            played = any(v for v in (s.get("stats") or {}).values())  # any non-zero stat, targets included
         elif s.get("statSourceId") == 1:
             proj = s.get("appliedTotal", 0.0)
     return {
@@ -327,7 +348,7 @@ def lineup_metrics(api: Espn, year: int, data: dict, counted: set, complete: boo
                 ss_t[tid] += 1
                 if not any(b["actual"] > s["actual"] and s["slot"] in b["eligible"] for b in bench):
                     ss_c[tid] += 1
-                if s["played"] and s["proj"] >= INJURY_MIN_PROJECTION and s["actual"] < INJURY_SHARE * s["proj"]:
+                if s["played"]:
                     after = next_week.get(s["id"])
                     if after and (after["slot"] == IR_SLOT
                                   or (not after["played"] and byes.get(after["pro_team"]) != sp + 1)):
@@ -417,13 +438,32 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
     status = data.get("status") or {}
     last_sp = (status.get("finalScoringPeriod") if complete else (status.get("latestScoringPeriod") or 1) - 1) or 17
 
-    # Trades (needs the newer API, 2018 on)
-    trades = []
+    # Weekly lineups: start/sit and mid-game injuries (also the source for trades)
+    did_box, rosters = False, None
+    if box_scores and year >= BOX_SCORES_FROM:
+        try:
+            lm = lineup_metrics(api, year, data, counted, complete)
+        except Exception as e:  # noqa: BLE001
+            log(f"  {year}: couldn't load box scores ({e}); skipping start/sit and injuries")
+            lm = None
+        if lm:
+            did_box, rosters = True, lm["rosters"]
+            for tid, k in key_of.items():
+                lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
+
+    # Trades: from roster movement when we have weekly rosters. ESPN's transaction feed also returns
+    # offers visible only to the signed-in account, so it's kept just as a cross-check.
+    feed = []
     if year >= 2018:
         try:
-            trades = fetch_trades(api, year, last_sp)
+            feed = fetch_trades(api, year, last_sp)
         except Exception as e:  # noqa: BLE001
-            log(f"  {year}: couldn't load trades ({e})")
+            log(f"  {year}: couldn't load transaction feed ({e})")
+    trades = infer_trades(rosters) if rosters else feed
+    seen = {(m["pid"], m["to"]) for t in trades for m in t["moves"]}
+    diag = {"feedTrades": len(feed), "rosterTrades": len(trades) if rosters else None,
+            "feedConfirmed": sum(1 for t in feed if any((m["pid"], m["to"]) in seen for m in t["moves"]))}
+    log(f"  {year}: trades {diag}")
 
     # Player points: season totals for the draft, week by week for trades
     picks = (data.get("draftDetail") or {}).get("picks") or []
@@ -451,24 +491,11 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             elif p.get("roundId", 0) >= LATE_ROUND and rank is not None and rank <= GEM_TOP.get(s["pos"], TOP_AT_POSITION):
                 lines[k]["lateHits"] += 1
 
-    # Weekly lineups: start/sit and mid-game injuries
-    did_box, rosters = False, None
-    if box_scores and year >= BOX_SCORES_FROM:
-        try:
-            lm = lineup_metrics(api, year, data, counted, complete)
-        except Exception as e:  # noqa: BLE001
-            log(f"  {year}: couldn't load box scores ({e}); skipping start/sit and injuries")
-            lm = None
-        if lm:
-            did_box, rosters = True, lm["rosters"]
-            for tid, k in key_of.items():
-                lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
-
     trade_report = analyze_trades(trades, stats, key_of, results, rosters, last_sp) if trades and stats else []
 
     return {"v": CACHE_VERSION, "year": year, "size": size, "complete": complete, "boxScores": did_box,
             "playoffTeams": playoff_teams, "name": (data.get("settings") or {}).get("name"),
-            "lines": lines, "games": games, "trades": trade_report}
+            "lines": lines, "games": games, "trades": trade_report, "tradeCheck": diag}
 
 
 # ---------- Whole league ----------
@@ -529,6 +556,7 @@ def assemble(league_id: int, results: list[dict]) -> dict:
         "seasons": seasons,
         "games": games,
         "trades": trades,
+        "tradeCheck": {str(r["year"]): r.get("tradeCheck") for r in results},
     }
 
 
