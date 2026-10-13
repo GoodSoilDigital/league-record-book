@@ -2,7 +2,8 @@ name: Update league data
 
 on:
   schedule:
-    - cron: "0 12 * * 2"   # Tuesdays 12:00 UTC, after Monday Night Football
+    - cron: "0 12 * * 2"   # Tuesdays 12:00 UTC (7 am Central), after Monday Night Football
+    - cron: "0 12 * * 3"   # Wednesdays, a backup in case GitHub skips the Tuesday run
   workflow_dispatch:        # "Run workflow" button on the Actions tab
 
 permissions:
