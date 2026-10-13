@@ -434,7 +434,9 @@ svg text { font-family: var(--font-body); }
   const pastTitleYears = i => {
     if (D.sample || state.from !== D.years[0]) return [];
     const name = ((D.managers[i] || {}).name || "").trim().toLowerCase();
-    if (PREV && PREV.seasons) return PREV.seasons.filter(s => s.champion && (s.champion.name || "").trim().toLowerCase() === name).map(s => s.year);
+    // Seasons already loaded as full seasons count on their own; only add titles from seasons that aren't
+    if (PREV && PREV.seasons) return PREV.seasons.filter(s => !D.years.includes(s.year) && s.champion && (s.champion.name || "").trim().toLowerCase() === name).map(s => s.year);
+    if ((D.previousLeagues || []).length) return [];
     return PREVIOUS_LEAGUE_TITLES.filter(n => n.trim().toLowerCase() === name).map(() => null);
   };
   const pastTitles = i => pastTitleYears(i).length;
@@ -581,6 +583,7 @@ svg text { font-family: var(--font-body); }
       $("dataHint").textContent = `ESPN league ${D.league.id} · ${D.years[0]}–${D.years[D.years.length - 1]}`;
       $("dataBody").innerHTML = `
         <p>Synced from ESPN on ${esc(when)}. Seasons still in progress count toward records and head-to-head, but not finishes, playoffs or draft results.</p>
+        ${(D.previousLeagues || []).map(p => `<p>${p.first}–${p.last} come from the group's earlier ESPN league (ID ${p.id}). Managers are matched across both leagues by ESPN account.</p>`).join("")}
         <p class="muted">${D.boxScoresFrom ? `Start/sit and injury numbers cover ${D.boxScoresFrom} onward. ESPN doesn't keep lineups for earlier seasons.` : "Start/sit and injury numbers weren't included in this sync."}</p>`;
     }
   }
