@@ -16,6 +16,7 @@
   --muted: #5a645e;
   --line: #d8ddd2;
   --accent: #d24a12;      /* pylon orange: selected manager */
+  --cool: #2f6db0;        /* below-average shading on the Tendencies tab */
   --bar: #8b968f;         /* everyone else */
   --good: #1f8a54;
   --bad: #c83a3a;
@@ -27,13 +28,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0e1210; --surface: #171c19; --sunken: #1f2522; --ink: #ecf0ea; --muted: #9ba59e;
-    --line: #2b332f; --accent: #ff7a3d; --bar: #5f6a64; --good: #43b679; --bad: #ec6464;
+    --line: #2b332f; --accent: #ff7a3d; --cool: #6aa5e6; --bar: #5f6a64; --good: #43b679; --bad: #ec6464;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0e1210; --surface: #171c19; --sunken: #1f2522; --ink: #ecf0ea; --muted: #9ba59e;
-  --line: #2b332f; --accent: #ff7a3d; --bar: #5f6a64; --good: #43b679; --bad: #ec6464;
+  --line: #2b332f; --accent: #ff7a3d; --cool: #6aa5e6; --bar: #5f6a64; --good: #43b679; --bad: #ec6464;
   color-scheme: dark;
 }
 
@@ -118,6 +119,7 @@ table { border-collapse: collapse; width: 100%; }
 .pos { color: var(--good); } .neg { color: var(--bad); }
 
 /* Two column area */
+.stack { display: grid; gap: 20px; align-content: start; min-width: 0; }
 .split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
 
@@ -160,6 +162,7 @@ svg text { font-family: var(--font-body); }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
 .chart .zero { stroke: var(--muted); stroke-width: 1; }
 .chart .hit { fill: transparent; cursor: pointer; }
+.chart .wline { cursor: pointer; }
 .chart .row:hover .hit { fill: var(--sunken); }
 
 /* Profile */
@@ -235,6 +238,18 @@ svg text { font-family: var(--font-body); }
 
 .legend { display: flex; align-items: center; gap: 10px; font-size: .8rem; color: var(--muted); flex-wrap: wrap; }
 .ramp { width: 160px; height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--bad), var(--sunken), var(--good)); }
+.ramp-share { background: linear-gradient(90deg, var(--cool), var(--sunken), var(--accent)); }
+.share td div { min-width: 64px; }
+.share td.lg div { background: var(--sunken); font-weight: 600; }
+.habits td.shade { background-clip: padding-box; }
+.draft-table td button { font: inherit; color: inherit; background: none; border: 1px solid var(--line); border-radius: 4px; padding: 2px 9px; cursor: pointer; }
+.draft-table td button:hover, .draft-table td button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.draft-table td button:disabled { opacity: .45; cursor: default; border-color: transparent; }
+#draftDetail { display: grid; gap: 10px; }
+#draftDetail h3 { font-size: 1.1rem; }
+.pick-list th, .pick-list td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); font-size: .86rem; white-space: nowrap; }
+.pick-list th { font: 600 .66rem/1.2 var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.pick-list td.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
 
 /* Methodology */
 .method { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
@@ -269,6 +284,8 @@ svg text { font-family: var(--font-body); }
 
   <nav class="views" role="tablist" aria-label="Sections">
     <button role="tab" id="tab-dashboard" data-view="dashboard" aria-selected="true">Dashboard</button>
+    <button role="tab" id="tab-draft" data-view="draft" aria-selected="false">Draft</button>
+    <button role="tab" id="tab-tendencies" data-view="tendencies" aria-selected="false">Tendencies</button>
     <button role="tab" id="tab-trades" data-view="trades" aria-selected="false">Trades</button>
     <button role="tab" id="tab-records" data-view="records" aria-selected="false">Records</button>
   </nav>
@@ -287,12 +304,19 @@ svg text { font-family: var(--font-body); }
   </section>
 
   <div class="split">
+    <div class="stack">
     <section class="panel card">
       <div class="panel-head"><h2>Metric explorer</h2></div>
       <div class="tabs" id="tabs" role="group" aria-label="Metric"></div>
       <p class="metric-desc" id="metricDesc"></p>
       <div class="chart" id="chart"></div>
     </section>
+
+    <section class="panel card">
+      <div class="panel-head"><h2>Regular-season wins</h2><span class="legend" id="winsLegend"></span></div>
+      <div class="chart" id="winsChart"></div>
+    </section>
+    </div>
 
     <section class="panel card" id="profile"></section>
   </div>
@@ -313,6 +337,44 @@ svg text { font-family: var(--font-body); }
       <p class="muted">Seasons before 2018 use <code>/leagueHistory/{leagueId}?seasonId={year}</code>. Private leagues need the <code>espn_s2</code> and <code>SWID</code> cookies sent with each request.</p>
     </div>
     <div class="method" id="method"></div>
+  </section>
+  </div>
+
+  <div class="view" id="view-draft" role="tabpanel" aria-labelledby="tab-draft" hidden>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Draft report card</h2>
+      <span class="muted" style="font-size:.85rem" id="draftNote"></span>
+    </div>
+    <p class="metric-desc">First-round busts are first-round picks who finished outside the top 20 at their position. Late gems are picks from round 7 on who finished top 20 at RB or WR, or top 8 at QB or TE; kickers and defenses are left out. Finished seasons only, ranked by season fantasy points in your league's scoring. Click any number to see the picks behind it.</p>
+    <div class="card scroll-x" style="padding:0"><table class="scorecard draft-table" id="draftTable"></table></div>
+    <div class="card" id="draftDetail" hidden></div>
+  </section>
+  </div>
+
+  <div class="view" id="view-tendencies" role="tabpanel" aria-labelledby="tab-tendencies" hidden>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Where the points come from</h2>
+      <div class="legend"><span>Below league average</span><span class="ramp ramp-share" aria-hidden="true"></span><span>Above</span></div>
+    </div>
+    <p class="metric-desc">Share of each team's starting-lineup points by position, next to the league as a whole. A team that keeps a top QB shows a bigger QB share. Covers 2019 on, since ESPN doesn't keep older lineups.</p>
+    <div class="card scroll-x"><table class="matrix share" id="shareTable"></table></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Draft habits</h2>
+      <div class="legend"><span>Later / less than the league</span><span class="ramp ramp-share" aria-hidden="true"></span><span>Earlier / more</span></div>
+    </div>
+    <p class="metric-desc">How each manager tends to draft, averaged over their drafts in the selected seasons. Shading compares each number with the league average.</p>
+    <div class="card scroll-x" style="padding:0"><table class="scorecard habits" id="habitsTable"></table></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Favorite players</h2></div>
+    <p class="metric-desc">Players the same manager drafted in three or more different seasons.</p>
+    <div class="card scroll-x" style="padding:0"><table class="scorecard" id="favorites"></table></div>
   </section>
   </div>
 
@@ -480,6 +542,7 @@ svg text { font-family: var(--font-body); }
         best: fin.length ? Math.min(...fin) : null, worst: fin.length ? Math.max(...fin) : null,
         w: r.w, l: r.l, t: r.t, winPct: played ? (r.w + r.t / 2) / played : null,
         pf: played ? r.pf : null, pa: played ? r.pa : null,
+        ppg: played ? r.pf / played : null, papg: played ? r.pa / played : null,
         pw: r.pw, pl: r.pl, poPct: r.pw + r.pl ? r.pw / (r.pw + r.pl) : null,
         sacko: finished.length ? finished.filter(l => l.label === "Bottom 4").length : null,
         regW: (sum("w") || 0) + (sum("t") || 0) / 2, xw: sum("xw") || 0,
@@ -533,6 +596,10 @@ svg text { font-family: var(--font-body); }
       desc: "All-time points scored, regular season and championship bracket." },
     { key: "pa", label: "Points against", short: "Total points against", better: 0, fmt: fmtPts,
       desc: "All-time points scored against you, regular season and championship bracket. Not a skill, so no leader star." },
+    { key: "ppg", label: "Points / game", short: "Points per game", better: 1, fmt: fmt1,
+      desc: "Total points for divided by games played, regular season and championship bracket." },
+    { key: "papg", label: "Against / game", short: "Points against per game", better: 0, fmt: fmt1,
+      desc: "Total points against divided by games played. Not a skill, so no leader star." },
     { key: "wae", label: "Wins above exp.", short: "Wins above expected %", better: 1, fmt: fmtSigned,
       desc: "Actual win rate minus all-play win rate, regular season only. All-play counts how many teams you'd have beaten each week. Positive means schedule luck went your way." },
     { key: "playoffs", label: "Playoffs", short: "Playoff appearances", better: 1, fmt: fmtInt,
@@ -543,10 +610,6 @@ svg text { font-family: var(--font-body); }
       desc: "Starters who played, scored under 40% of their projection, then missed the next week (IR or no stats, not a bye). Box scores exist from 2019 on." },
     { key: "ss", label: "Start/sit %", short: "Start/sit correct %", better: 1, fmt: fmtPct,
       desc: "Share of lineup slots where the starter outscored every eligible bench player for that slot. Box scores exist from 2019 on." },
-    { key: "busts", label: "R1 busts", short: "1st-rounders outside top 20", better: -1, fmt: fmtInt,
-      desc: "First-round picks who finished outside the top 20 at their position in season-long fantasy points." },
-    { key: "lateHits", label: "Late gems", short: "Top finishers drafted Rd 7+", better: 1, fmt: fmtInt,
-      desc: "Players drafted in round 7 or later who finished top 20 at RB or WR, or top 8 at QB or TE. Kickers and defenses are left out." },
   ];
   const M = Object.fromEntries(METRICS.map(m => [m.key, m]));
   const val = (m, r) => { const v = m.sortVal ? m.sortVal(r) : r[m.key]; return isNum(v) ? v : null; };
@@ -695,6 +758,147 @@ svg text { font-family: var(--font-body); }
     $("chart").querySelectorAll(".row").forEach(g => g.onclick = () => select(+g.dataset.i));
   }
 
+  // ---------- Draft ----------
+  const GEM_TOP = { QB: 8, TE: 8, RB: 20, WR: 20 };  // late gem: round 7+ and inside these finishes
+  const BUST_OUTSIDE = 20, LATE_ROUND = 7;
+  const seasonDone = (y, m) => isNum(((D.seasons[y] || [])[m] || {}).finish);
+  const isBust = d => d.r === 1 && d.pos !== "K" && d.pos !== "D/ST" && (d.rank == null || d.rank > BUST_OUTSIDE);
+  const isGem = d => d.r >= LATE_ROUND && GEM_TOP[d.pos] && d.rank != null && d.rank <= GEM_TOP[d.pos];
+  let draftOpen = null;  // { m, kind } of the list being shown
+
+  function renderDraft(rows) {
+    const picks = (D.draft || []).filter(d => inRange(d.y));
+    if (!picks.length) {
+      $("draftTable").innerHTML = `<tbody><tr><td class="empty">No draft data yet. It appears after the next sync.</td></tr></tbody>`;
+      $("draftDetail").hidden = true; $("draftNote").textContent = ""; return;
+    }
+    const done = picks.filter(d => seasonDone(d.y, d.m));
+    const yrs = [...new Set(done.map(d => d.y))].sort();
+    $("draftNote").textContent = yrs.length ? `${yrs[0]}–${yrs[yrs.length - 1]} finished seasons` : "";
+    const kinds = { r1: { label: "first-round picks", test: d => d.r === 1 }, bust: { label: "first-round busts", test: isBust }, gem: { label: "late gems", test: isGem } };
+    const table = rows.map(r => {
+      const mine = done.filter(d => d.m === r.i);
+      const r1 = mine.filter(kinds.r1.test), busts = mine.filter(isBust), gems = mine.filter(isGem);
+      const best = gems.slice().sort((a, b) => a.rank - b.rank || a.r - b.r)[0];
+      return { r, drafts: new Set(mine.map(d => d.y)).size, r1, busts, gems, best };
+    }).filter(t => t.drafts).sort((a, b) => b.gems.length - b.busts.length - (a.gems.length - a.busts.length));
+    const btn = (t, kind, list) => `<button type="button" data-m="${t.r.i}" data-kind="${kind}" aria-pressed="${!!draftOpen && draftOpen.m === t.r.i && draftOpen.kind === kind}" ${list.length ? "" : "disabled"}>${list.length}</button>`;
+    $("draftTable").innerHTML = `<thead><tr><th>Manager</th><th>Drafts</th><th>1st-round picks</th><th>1st-round busts</th><th>Bust rate</th><th>Late gems</th><th>Best late gem</th></tr></thead><tbody>`
+      + table.map(t => `<tr class="${t.r.i === state.sel ? "sel" : ""}"><td>${esc(t.r.name)}</td><td>${t.drafts}</td><td>${btn(t, "r1", t.r1)}</td><td>${btn(t, "bust", t.busts)}</td>`
+        + `<td>${t.r1.length ? Math.round(t.busts.length / t.r1.length * 100) + "%" : "—"}</td><td>${btn(t, "gem", t.gems)}</td>`
+        + `<td>${t.best ? `${esc(t.best.name)} <span class="muted">${t.best.pos}${t.best.rank} · ${t.best.y} rd ${t.best.r}</span>` : "—"}</td></tr>`).join("") + `</tbody>`;
+    $("draftTable").querySelectorAll("button[data-kind]").forEach(b => b.onclick = () => {
+      const m = +b.dataset.m, kind = b.dataset.kind;
+      draftOpen = draftOpen && draftOpen.m === m && draftOpen.kind === kind ? null : { m, kind };
+      renderDraft(rows);
+    });
+
+    const box = $("draftDetail");
+    if (!draftOpen) { box.hidden = true; return; }
+    const list = done.filter(d => d.m === draftOpen.m && kinds[draftOpen.kind].test(d)).sort((a, b) => a.y - b.y || a.p - b.p);
+    box.hidden = false;
+    box.innerHTML = `<h3>${esc((D.managers[draftOpen.m] || {}).name || "")} · ${kinds[draftOpen.kind].label} (${list.length})</h3>`
+      + `<div class="scroll-x"><table class="pick-list"><thead><tr><th>Season</th><th>Round</th><th>Overall pick</th><th>Player</th><th>Finished</th><th>Season pts</th></tr></thead><tbody>`
+      + list.map(d => `<tr><td class="num">${d.y}</td><td class="num">${d.r}</td><td class="num">${dashN(d.p)}</td><td>${esc(d.name)} <span class="muted">${d.pos}</span>${d.keeper ? ` <span class="pill push">Keeper</span>` : ""}</td>`
+        + `<td class="num">${d.rank ? d.pos + d.rank : "Not ranked"}</td><td class="num">${isNum(d.pts) ? d.pts.toFixed(1) : "—"}</td></tr>`).join("")
+      + `</tbody></table></div>`;
+  }
+  const dashN = v => isNum(v) ? v : "—";
+
+  // ---------- Tendencies ----------
+  const POSITIONS = ["QB", "RB", "WR", "TE", "K", "D/ST"];
+  // Shade a cell by how far a value sits from the league average: accent above, cool below
+  const shade = (v, avg, spread) => {
+    if (!isNum(v) || !isNum(avg) || !spread) return "";
+    const amt = Math.round(Math.min(1, Math.abs(v - avg) / spread) * 55);
+    return amt < 4 ? "" : `background:color-mix(in oklab, ${v > avg ? "var(--accent)" : "var(--cool)"} ${amt}%, var(--surface))`;
+  };
+
+  function renderTendencies(rows) {
+    // Where the points come from (starting-lineup points by position)
+    const share = rows.map(r => {
+      const tot = {}; r.lines.forEach(l => Object.entries(l.posPts || {}).forEach(([p, v]) => tot[p] = (tot[p] || 0) + v));
+      const sum = POSITIONS.reduce((s, p) => s + (tot[p] || 0), 0);
+      return { r, tot, sum };
+    }).filter(s => s.sum > 0);
+    const league = {}; share.forEach(s => POSITIONS.forEach(p => league[p] = (league[p] || 0) + (s.tot[p] || 0)));
+    const lsum = POSITIONS.reduce((s, p) => s + (league[p] || 0), 0);
+    const lpct = p => lsum ? (league[p] || 0) / lsum * 100 : null;
+    if (!share.length) $("shareTable").innerHTML = `<tbody><tr><td class="empty">No lineup data for these seasons yet. It appears after the next sync, for 2019 on.</td></tr></tbody>`;
+    else $("shareTable").innerHTML = `<thead><tr><th></th>${POSITIONS.map(p => `<th>${p}</th>`).join("")}<th>Starter pts</th></tr></thead><tbody>`
+      + share.sort((a, b) => b.sum - a.sum).map(s => `<tr class="${s.r.i === state.sel ? "sel" : ""}"><th>${esc(s.r.name)}</th>${POSITIONS.map(p => {
+          const v = (s.tot[p] || 0) / s.sum * 100, avg = lpct(p);
+          return `<td><div style="${shade(v, avg, Math.max(1.5, avg * .3))}" data-tip="${esc(`<b>${esc(s.r.name)} · ${p}</b><br>${v.toFixed(1)}% of starter points (league ${avg.toFixed(1)}%)<br>${fmtTot(s.tot[p] || 0)} pts`)}">${v.toFixed(1)}%</div></td>`;
+        }).join("")}<td><div>${fmtPts(s.sum)}</div></td></tr>`).join("")
+      + `<tr><th>League</th>${POSITIONS.map(p => `<td class="lg"><div>${lpct(p).toFixed(1)}%</div></td>`).join("")}<td class="lg"><div>${fmtPts(lsum)}</div></td></tr></tbody>`;
+
+    // Draft habits
+    const picks = (D.draft || []).filter(d => inRange(d.y));
+    const habit = m => {
+      const mine = picks.filter(d => m === null || d.m === m);
+      const drafts = [...new Set(mine.map(d => d.y + ":" + d.m))];
+      const firstRound = pos => { const v = drafts.map(k => { const ps = mine.filter(d => d.y + ":" + d.m === k && d.pos === pos).map(d => d.r); return ps.length ? Math.min(...ps) : null; }).filter(isNum); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+      const early = mine.filter(d => d.r <= 3), pct = pos => early.length ? early.filter(d => d.pos === pos).length / early.length * 100 : null;
+      const r1 = {}; mine.filter(d => d.r === 1).forEach(d => r1[d.pos] = (r1[d.pos] || 0) + 1);
+      return { drafts: drafts.length, qb: firstRound("QB"), te: firstRound("TE"), k: firstRound("K"), dst: firstRound("D/ST"), rb: pct("RB"), wr: pct("WR"), r1 };
+    };
+    const lg = habit(null);
+    const hs = rows.map(r => ({ r, h: habit(r.i) })).filter(x => x.h.drafts);
+    const rnd = v => isNum(v) ? v.toFixed(1) : "—", pc = v => isNum(v) ? Math.round(v) + "%" : "—";
+    // For "first X taken" an earlier round is "more" (accent), so flip the sign
+    const cellR = (v, avg) => `<td class="shade" style="${shade(isNum(v) ? -v : v, isNum(avg) ? -avg : avg, 2.5)}">${rnd(v)}</td>`;
+    const cellP = (v, avg) => `<td class="shade" style="${shade(v, avg, 15)}">${pc(v)}</td>`;
+    $("habitsTable").innerHTML = !hs.length ? `<tbody><tr><td class="empty">No draft data yet. It appears after the next sync.</td></tr></tbody>`
+      : `<thead><tr><th>Manager</th><th>Drafts</th><th>1st-round picks</th><th title="Average round of the first QB taken">First QB, avg rd</th><th title="Average round of the first TE taken">First TE, avg rd</th>`
+        + `<th title="Share of picks in rounds 1–3">RB in rds 1–3</th><th title="Share of picks in rounds 1–3">WR in rds 1–3</th><th>First K, avg rd</th><th>First D/ST, avg rd</th></tr></thead><tbody>`
+        + hs.map(({ r, h }) => `<tr class="${r.i === state.sel ? "sel" : ""}"><td>${esc(r.name)}</td><td>${h.drafts}</td>`
+          + `<td style="font-family:var(--font-body)">${Object.entries(h.r1).sort((a, b) => b[1] - a[1]).map(([p, n]) => `${p} ${n}`).join(" · ") || "—"}</td>`
+          + cellR(h.qb, lg.qb) + cellR(h.te, lg.te) + cellP(h.rb, lg.rb) + cellP(h.wr, lg.wr) + cellR(h.k, lg.k) + cellR(h.dst, lg.dst) + `</tr>`).join("")
+        + `<tr><td><b>League</b></td><td></td><td></td><td>${rnd(lg.qb)}</td><td>${rnd(lg.te)}</td><td>${pc(lg.rb)}</td><td>${pc(lg.wr)}</td><td>${rnd(lg.k)}</td><td>${rnd(lg.dst)}</td></tr></tbody>`;
+
+    // Favorite players: drafted by the same manager in 3+ seasons
+    const shown = new Set(rows.map(r => r.i)), groups = {};
+    picks.filter(d => shown.has(d.m)).forEach(d => { const k = d.m + ":" + d.pid; (groups[k] = groups[k] || []).push(d); });
+    const favs = Object.values(groups).map(g => ({ m: g[0].m, name: g[g.length - 1].name, pos: g[0].pos, years: [...new Set(g.map(d => d.y))].sort(), avgR: g.reduce((s, d) => s + d.r, 0) / g.length }))
+      .filter(f => f.years.length >= 3).sort((a, b) => b.years.length - a.years.length || a.avgR - b.avgR);
+    $("favorites").innerHTML = !favs.length ? `<tbody><tr><td class="empty">${picks.length ? "No player drafted by the same manager in three or more seasons." : "No draft data yet. It appears after the next sync."}</td></tr></tbody>`
+      : `<thead><tr><th>Manager</th><th>Player</th><th>Times drafted</th><th>Seasons</th><th>Avg round</th></tr></thead><tbody>`
+        + favs.map(f => `<tr class="${f.m === state.sel ? "sel" : ""}"><td>${esc((D.managers[f.m] || {}).name || "")}</td><td style="font-family:var(--font-body)">${esc(f.name)} <span class="muted">${f.pos}</span></td><td>${f.years.length}</td><td>${f.years.join(", ")}</td><td>${f.avgR.toFixed(1)}</td></tr>`).join("") + `</tbody>`;
+  }
+
+  // Regular-season wins per year: one line per manager, the selected one highlighted
+  function renderWins(rows) {
+    const ys = D.years.filter(inRange);
+    const W = 560, H = 250, L = 30, R = 14, T = 12, B = 26;
+    const pts = rows.map(r => ({ r, p: r.lines.map(l => ({ y: l.y, w: l.w + (l.t || 0) / 2, l })) }));
+    const maxW = Math.max(14, ...pts.flatMap(s => s.p.map(q => q.w)));
+    const top = Math.ceil(maxW / 2) * 2;
+    const x = y => ys.length === 1 ? (L + W - R) / 2 : L + (ys.indexOf(y) / (ys.length - 1)) * (W - L - R);
+    const yv = w => T + (1 - w / top) * (H - T - B);
+    let svg = "";
+    for (let w = 0; w <= top; w += 2) svg += `<line class="grid" x1="${L}" x2="${W - R}" y1="${yv(w)}" y2="${yv(w)}"/><text class="tick" x="${L - 6}" y="${yv(w) + 4}" text-anchor="end">${w}</text>`;
+    const step = ys.length > 12 ? 2 : 1;
+    ys.forEach((y, k) => { if (k % step === 0 || k === ys.length - 1) svg += `<text class="tick" x="${x(y)}" y="${H - 8}" text-anchor="middle">${y}</text>`; });
+    const ordered = pts.slice().sort((a, b) => (a.r.i === state.sel) - (b.r.i === state.sel));  // selected drawn last
+    ordered.forEach(({ r, p }) => {
+      const sel = r.i === state.sel, color = sel ? "var(--accent)" : "var(--bar)";
+      // break the line where a manager skipped seasons
+      const segs = [];
+      p.forEach((q, k) => { if (!k || ys.indexOf(q.y) - ys.indexOf(p[k - 1].y) !== 1) segs.push([]); segs[segs.length - 1].push(q); });
+      segs.forEach(sg => { if (sg.length > 1) svg += `<polyline data-i="${r.i}" class="wline" fill="none" stroke="${color}" stroke-width="${sel ? 2.5 : 1.5}" stroke-opacity="${sel ? 1 : .45}" stroke-linejoin="round" points="${sg.map(q => `${x(q.y)},${yv(q.w)}`).join(" ")}"/>`; });
+      p.forEach(q => {
+        const live = !isNum(q.l.finish);
+        if (sel) svg += `<circle cx="${x(q.y)}" cy="${yv(q.w)}" r="4" fill="${live ? "var(--surface)" : color}" stroke="${live ? color : "var(--surface)"}" stroke-width="2"/>`;
+        svg += `<circle class="hit" data-i="${r.i}" cx="${x(q.y)}" cy="${yv(q.w)}" r="7" data-tip="${esc(`<b>${esc(r.name)}</b> · ${q.y}<br>${recStr(q.l.w, q.l.l, q.l.t)}${live ? " so far" : ` · ${q.l.label}`}`)}"/>`;
+      });
+    });
+    const sel = rows.find(r => r.i === state.sel);
+    $("winsLegend").innerHTML = `<svg width="18" height="8" aria-hidden="true"><line x1="0" x2="18" y1="4" y2="4" stroke="var(--accent)" stroke-width="2.5"/></svg>${esc(sel ? sel.name : "")}`
+      + `<svg width="18" height="8" aria-hidden="true"><line x1="0" x2="18" y1="4" y2="4" stroke="var(--bar)" stroke-width="1.5" stroke-opacity=".6"/></svg>Rest of league`;
+    $("winsChart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Regular-season wins per year">${svg}</svg>`;
+    $("winsChart").querySelectorAll("[data-i]").forEach(el => el.onclick = () => select(+el.dataset.i));
+  }
+
   function renderProfile(rows) {
     const r = rows.find(x => x.i === state.sel);
     const rankOf = k => val(M[k], r) === null ? null : rows.slice().sort(bestFirst(M[k])).findIndex(x => x.i === r.i) + 1;
@@ -708,7 +912,7 @@ svg text { font-family: var(--font-body); }
       const wae = l.g ? ((l.w + (l.t || 0) / 2) - l.xw) / l.g * 100 : null;
       return `<tr><td>${l.y}</td><td>${recStr(l.w, l.l, l.t)}</td><td>${dash(l.seed)}</td><td data-tip="${esc(tip)}"><span class="pill ${LABEL_PILL[l.label]}">${l.label}</span></td>`
         + `<td class="${wae === null ? "" : wae >= 0 ? "pos" : "neg"}">${wae === null ? "—" : fmtSigned(wae)}</td><td>${dash(l.inj)}</td>`
-        + `<td>${l.ssT ? fmtPct(l.ssC / l.ssT * 100) : "—"}</td><td>${dash(l.r1Bust)}</td><td>${dash(l.lateHits)}</td></tr>`;
+        + `<td>${l.ssT ? fmtPct(l.ssC / l.ssT * 100) : "—"}</td></tr>`;
     }).join("");
     $("profile").innerHTML = `
       <div class="profile-head">
@@ -723,8 +927,8 @@ svg text { font-family: var(--font-body); }
         <div><span class="v num">${show(M.pa, r)}</span><span class="k">Points against</span></div>
         <div><span class="v num">${show(M.ss, r)}</span><span class="k">Start/sit${rk("ss")}</span></div>
         <div><span class="v num">${show(M.inj, r)}</span><span class="k">Mid-game inj.</span></div>
-        <div><span class="v num">${show(M.busts, r)}</span><span class="k">R1 busts</span></div>
-        <div><span class="v num">${show(M.lateHits, r)}</span><span class="k">Late gems</span></div>
+        <div><span class="v num">${show(M.ppg, r)}</span><span class="k">Pts / game${rk("ppg")}</span></div>
+        <div><span class="v num">${show(M.papg, r)}</span><span class="k">Against / game</span></div>
       </div>
       <h3>Record against each opponent</h3>
       <div class="h2h-list">${opp.length ? opp.map(o => `
@@ -734,7 +938,7 @@ svg text { font-family: var(--font-body); }
           <span class="rec">${recStr(o.w, o.l, o.t)}</span>
         </div>`).join("") : `<p class="muted">No games in these seasons.</p>`}</div>
       <h3>Season by season</h3>
-      <div class="scroll-x"><table class="seasons"><thead><tr><th>Year</th><th>Record</th><th>Seed</th><th>Finish</th><th>WAE</th><th>Inj.</th><th>Start/sit</th><th>R1 busts</th><th>Late gems</th></tr></thead><tbody>${seasonsRows}</tbody></table></div>`;
+      <div class="scroll-x"><table class="seasons"><thead><tr><th>Year</th><th>Record</th><th>Seed</th><th>Finish</th><th>WAE</th><th>Inj.</th><th>Start/sit</th></tr></thead><tbody>${seasonsRows}</tbody></table></div>`;
     $("mgrSelect").value = state.sel;
   }
 
@@ -760,6 +964,8 @@ svg text { font-family: var(--font-body); }
       playoffs: "<code>team.playoffSeed</code> ≤ <code>settings.scheduleSettings.playoffTeamCount</code>.",
       pf: "Sum of your score in every counted game from <code>schedule[]</code>: regular season plus the championship bracket.",
       pa: "Sum of your opponents' scores in those same games.",
+      ppg: "Points for divided by the number of counted games.",
+      papg: "Points against divided by the number of counted games.",
       sacko: "Finished seasons where <code>playoffSeed</code> (final regular-season standing) was in the bottom four of the league.",
       trades: "Completed trades from the league's Recent Activity feed (<code>kona_league_communication</code>), the same list as ESPN's Recent Activity page. Each trade counts from the first week that kicked off after it went through. Weekly player points from <code>kona_player_info</code> give positional ranks before and after; weekly box scores give points each player scored in the new team's starting lineup.",
       inj: "Weekly box scores (<code>mBoxscore</code> per <code>scoringPeriodId</code>): starters who played, scored under 40% of a 5+ point projection, and the next week sat on IR or recorded no stats outside their bye. ESPN only keeps a player's current injury tag, so this is an estimate.",
@@ -926,9 +1132,9 @@ svg text { font-family: var(--font-body); }
   }
 
   function showView(v) {
-    if (!["dashboard", "trades", "records"].includes(v)) v = "dashboard";
+    if (!["dashboard", "draft", "tendencies", "trades", "records"].includes(v)) v = "dashboard";
     state.view = v;
-    ["dashboard", "trades", "records"].forEach(k => {
+    ["dashboard", "draft", "tendencies", "trades", "records"].forEach(k => {
       $("view-" + k).hidden = k !== v;
       $("tab-" + k).setAttribute("aria-selected", String(k === v));
     });
@@ -947,7 +1153,7 @@ svg text { font-family: var(--font-body); }
     if (!M[state.metric] || M[state.metric].noChart) state.metric = "avgFinish";
     if (!M[state.sortKey]) state.sortKey = "avgFinish";
     $("mgrSelect").innerHTML = rows.map(r => `<option value="${r.i}">${esc(r.name)} · ${esc(r.team)}</option>`).join("");
-    renderSummary(rows); renderBoard(rows, former); renderTabs(); renderChart(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows); renderRecords();
+    renderSummary(rows); renderBoard(rows, former); renderTabs(); renderChart(rows); renderWins(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows); renderRecords(); renderDraft(rows); renderTendencies(rows);
   }
 
   function init() {
@@ -965,7 +1171,7 @@ svg text { font-family: var(--font-body); }
     document.querySelectorAll(".views button").forEach(b => b.onclick = () => showView(b.dataset.view));
     const fromLink = (location.hash || "").slice(1);
     renderData(); renderMethod(); render();
-    showView(["trades", "records"].includes(fromLink) ? fromLink : state.view);
+    showView(["draft", "tendencies", "trades", "records"].includes(fromLink) ? fromLink : state.view);
   }
 
   (async () => {
