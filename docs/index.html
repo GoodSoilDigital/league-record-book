@@ -346,7 +346,7 @@ svg text { font-family: var(--font-body); }
       <h2>Draft report card</h2>
       <span class="muted" style="font-size:.85rem" id="draftNote"></span>
     </div>
-    <p class="metric-desc">First-round busts are first-round picks who finished outside the top 20 at their position. Late gems are picks from round 7 on who finished top 20 at RB or WR, or top 8 at QB or TE; kickers and defenses are left out. Finished seasons only, ranked by season fantasy points in your league's scoring. Click any number to see the picks behind it.</p>
+    <p class="metric-desc">First-round busts are first-round picks who finished outside the top 20 at their position. Late gems are picks from round 7 on who finished top 20 at RB or WR, or top 8 at QB or TE; kickers and defenses are left out. Finished seasons only, ranked by season fantasy points in your league's scoring. Click any number to see the picks behind it. Starts in 2020; earlier drafts are left out because ESPN's data for them isn't reliable.</p>
     <div class="card scroll-x" style="padding:0"><table class="scorecard draft-table" id="draftTable"></table></div>
     <div class="card" id="draftDetail" hidden></div>
   </section>
@@ -765,11 +765,12 @@ svg text { font-family: var(--font-body); }
   const isBust = d => d.r === 1 && d.pos !== "K" && d.pos !== "D/ST" && (d.rank == null || d.rank > BUST_OUTSIDE);
   const isGem = d => d.r >= LATE_ROUND && GEM_TOP[d.pos] && d.rank != null && d.rank <= GEM_TOP[d.pos];
   let draftOpen = null;  // { m, kind } of the list being shown
+  const DRAFT_TAB_FROM = 2020;  // ESPN's draft data for 2016–2019 doesn't look right, so the Draft tab starts here
 
   function renderDraft(rows) {
-    const picks = (D.draft || []).filter(d => inRange(d.y));
+    const picks = (D.draft || []).filter(d => inRange(d.y) && d.y >= DRAFT_TAB_FROM);
     if (!picks.length) {
-      $("draftTable").innerHTML = `<tbody><tr><td class="empty">No draft data yet. It appears after the next sync.</td></tr></tbody>`;
+      $("draftTable").innerHTML = `<tbody><tr><td class="empty">${state.to < DRAFT_TAB_FROM ? `The Draft tab covers ${DRAFT_TAB_FROM} on. Set To to ${DRAFT_TAB_FROM} or later.` : "No draft data yet. It appears after the next sync."}</td></tr></tbody>`;
       $("draftDetail").hidden = true; $("draftNote").textContent = ""; return;
     }
     const done = picks.filter(d => seasonDone(d.y, d.m));
