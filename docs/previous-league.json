@@ -1,0 +1,45 @@
+{
+ "generated": "2026-10-13T19:05:38+00:00",
+ "league": {
+  "id": 1446935,
+  "name": "My dark twisted FIJI fantasy"
+ },
+ "seasons": [
+  {
+   "year": 2016,
+   "size": 12,
+   "champion": {
+    "name": "Austin R.",
+    "team": "2k16 Fantasy Champ "
+   },
+   "runnerUp": {
+    "name": "Matt R.",
+    "team": "Team Matt Fucks"
+   }
+  },
+  {
+   "year": 2017,
+   "size": 12,
+   "champion": {
+    "name": "michael b.",
+    "team": "X Gon' Give it to Ya"
+   },
+   "runnerUp": {
+    "name": "Austin R.",
+    "team": "King  Of The North"
+   }
+  },
+  {
+   "year": 2018,
+   "size": 12,
+   "champion": {
+    "name": "Alex S.",
+    "team": "Domination Station "
+   },
+   "runnerUp": {
+    "name": "Kristopher A.",
+    "team": "5-Star Man"
+   }
+  }
+ ]
+}
