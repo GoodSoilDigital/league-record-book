@@ -351,6 +351,15 @@ svg text { font-family: var(--font-body); }
     <div class="card" id="draftDetail" hidden></div>
   </section>
 
+  <section class="panel" id="liveDraftSection" hidden>
+    <div class="panel-head">
+      <h2 id="liveDraftTitle">Draft so far</h2>
+      <div class="field"><label for="liveDraftMgr">Manager</label><select id="liveDraftMgr"></select></div>
+    </div>
+    <p class="metric-desc" id="liveDraftDesc"></p>
+    <div class="card scroll-x" style="padding:0"><table class="pick-list" id="liveDraft"></table></div>
+  </section>
+
   <section class="panel">
     <div class="panel-head">
       <h2>Draft habits</h2>
@@ -515,7 +524,7 @@ svg text { font-family: var(--font-body); }
   };
 
   // ---------- State ----------
-  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false, view: "dashboard", showFormer: false };
+  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false, view: "dashboard", showFormer: false, liveMgr: null };
   const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeMine: state.tradeMine, view: state.view, showFormer: state.showFormer })); } catch (e) {} };
   const inRange = y => y >= state.from && y <= state.to;
   const isNum = v => v !== null && v !== undefined && !Number.isNaN(v);
@@ -805,6 +814,27 @@ svg text { font-family: var(--font-body); }
       + `</tbody></table></div>`;
   }
   const dashN = v => isNum(v) ? v : "—";
+
+  // This season's draft, still in progress: current positional rank and points to date
+  function renderLiveDraft(rows) {
+    const live = (D.draft || []).filter(d => d.live && d.y >= DRAFT_FROM && inRange(d.y));
+    $("liveDraftSection").hidden = !live.length;
+    if (!live.length) return;
+    const year = Math.max(...live.map(d => d.y)), picks = live.filter(d => d.y === year);
+    const shown = rows.filter(r => picks.some(d => d.m === r.i));
+    if (state.liveMgr !== "all" && !shown.some(r => r.i === state.liveMgr)) state.liveMgr = shown.some(r => r.i === state.sel) ? state.sel : "all";
+    $("liveDraftTitle").textContent = `${year} draft so far`;
+    $("liveDraftDesc").textContent = `This season's picks with each player's current rank at his position and fantasy points to date. The season is still going, so these don't count toward busts or late gems until it ends.`;
+    $("liveDraftMgr").innerHTML = `<option value="all">All managers</option>` + shown.map(r => `<option value="${r.i}">${esc(r.name)}</option>`).join("");
+    $("liveDraftMgr").value = String(state.liveMgr);
+    $("liveDraftMgr").onchange = e => { state.liveMgr = e.target.value === "all" ? "all" : +e.target.value; renderLiveDraft(rows); };
+    const all = state.liveMgr === "all";
+    const list = picks.filter(d => all || d.m === state.liveMgr).sort((a, b) => a.p - b.p);
+    $("liveDraft").innerHTML = `<thead><tr><th>Round</th><th>Overall pick</th>${all ? "<th>Manager</th>" : ""}<th>Player</th><th>Current rank</th><th>Points to date</th></tr></thead><tbody>`
+      + list.map(d => `<tr><td class="num">${d.r}</td><td class="num">${dashN(d.p)}</td>${all ? `<td>${esc((D.managers[d.m] || {}).name || "")}</td>` : ""}`
+        + `<td>${esc(d.name)} <span class="muted">${d.pos}</span>${d.keeper ? ` <span class="pill push">Keeper</span>` : ""}</td>`
+        + `<td class="num">${d.rank ? d.pos + d.rank : "Not ranked"}</td><td class="num">${isNum(d.pts) ? d.pts.toFixed(1) : "—"}</td></tr>`).join("") + `</tbody>`;
+  }
 
   // ---------- Tendencies ----------
   const POSITIONS = ["QB", "RB", "WR", "TE", "K", "D/ST"];
@@ -1154,7 +1184,7 @@ svg text { font-family: var(--font-body); }
     if (!M[state.metric] || M[state.metric].noChart) state.metric = "avgFinish";
     if (!M[state.sortKey]) state.sortKey = "avgFinish";
     $("mgrSelect").innerHTML = rows.map(r => `<option value="${r.i}">${esc(r.name)} · ${esc(r.team)}</option>`).join("");
-    renderSummary(rows); renderBoard(rows, former); renderTabs(); renderChart(rows); renderWins(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows); renderRecords(); renderDraft(rows); renderTendencies(rows);
+    renderSummary(rows); renderBoard(rows, former); renderTabs(); renderChart(rows); renderWins(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows); renderRecords(); renderDraft(rows); renderLiveDraft(rows); renderTendencies(rows);
   }
 
   function init() {
