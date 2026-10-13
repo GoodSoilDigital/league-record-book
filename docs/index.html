@@ -350,6 +350,21 @@ svg text { font-family: var(--font-body); }
     <div class="card scroll-x" style="padding:0"><table class="scorecard draft-table" id="draftTable"></table></div>
     <div class="card" id="draftDetail" hidden></div>
   </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Draft habits</h2>
+      <div class="legend"><span>Later / less than the league</span><span class="ramp ramp-share" aria-hidden="true"></span><span>Earlier / more</span></div>
+    </div>
+    <p class="metric-desc">How each manager tends to draft, averaged over their drafts from 2020 on. Shading compares each number with the league average.</p>
+    <div class="card scroll-x" style="padding:0"><table class="scorecard habits" id="habitsTable"></table></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Favorite players</h2></div>
+    <p class="metric-desc">Players the same manager drafted in three or more different seasons, from 2020 on.</p>
+    <div class="card scroll-x" style="padding:0"><table class="scorecard" id="favorites"></table></div>
+  </section>
   </div>
 
   <div class="view" id="view-tendencies" role="tabpanel" aria-labelledby="tab-tendencies" hidden>
@@ -360,21 +375,6 @@ svg text { font-family: var(--font-body); }
     </div>
     <p class="metric-desc">Share of each team's starting-lineup points by position, next to the league as a whole. A team that keeps a top QB shows a bigger QB share. Covers 2019 on, since ESPN doesn't keep older lineups.</p>
     <div class="card scroll-x"><table class="matrix share" id="shareTable"></table></div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Draft habits</h2>
-      <div class="legend"><span>Later / less than the league</span><span class="ramp ramp-share" aria-hidden="true"></span><span>Earlier / more</span></div>
-    </div>
-    <p class="metric-desc">How each manager tends to draft, averaged over their drafts in the selected seasons. Shading compares each number with the league average.</p>
-    <div class="card scroll-x" style="padding:0"><table class="scorecard habits" id="habitsTable"></table></div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head"><h2>Favorite players</h2></div>
-    <p class="metric-desc">Players the same manager drafted in three or more different seasons.</p>
-    <div class="card scroll-x" style="padding:0"><table class="scorecard" id="favorites"></table></div>
   </section>
   </div>
 
@@ -765,7 +765,7 @@ svg text { font-family: var(--font-body); }
   const isBust = d => d.r === 1 && d.pos !== "K" && d.pos !== "D/ST" && (d.rank == null || d.rank > BUST_OUTSIDE);
   const isGem = d => d.r >= LATE_ROUND && GEM_TOP[d.pos] && d.rank != null && d.rank <= GEM_TOP[d.pos];
   let draftOpen = null;  // { m, kind } of the list being shown
-  const DRAFT_FROM = 2020;  // ESPN's draft data for 2016–2019 is wrong, so the Draft tab starts here
+  const DRAFT_FROM = 2020;  // ESPN's draft data for 2016–2019 is wrong, so everything on the Draft tab starts here
 
   function renderDraft(rows) {
     const picks = (D.draft || []).filter(d => inRange(d.y) && d.y >= DRAFT_FROM);
@@ -833,8 +833,8 @@ svg text { font-family: var(--font-body); }
         }).join("")}<td><div>${fmtPts(s.sum)}</div></td></tr>`).join("")
       + `<tr><th>League</th>${POSITIONS.map(p => `<td class="lg"><div>${lpct(p).toFixed(1)}%</div></td>`).join("")}<td class="lg"><div>${fmtPts(lsum)}</div></td></tr></tbody>`;
 
-    // Draft habits
-    const picks = (D.draft || []).filter(d => inRange(d.y));
+    // Draft habits (on the Draft tab, so 2020 on like the rest of it)
+    const picks = (D.draft || []).filter(d => inRange(d.y) && d.y >= DRAFT_FROM);
     const habit = m => {
       const mine = picks.filter(d => m === null || d.m === m);
       const drafts = [...new Set(mine.map(d => d.y + ":" + d.m))];
