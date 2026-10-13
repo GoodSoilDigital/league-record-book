@@ -44,7 +44,7 @@ PREVIOUS_LEAGUES = [(1446935, 2016, 2018)]
 
 # Display names that belong to one person who shows up under more than one ESPN account
 # (for example after changing the email on their ESPN login). Each inner list is one person.
-SAME_PERSON = [["Nathan G."]]
+SAME_PERSON = [["Nathan G."], ["Austin R."], ["Kristopher A."], ["Justin B."], ["CJ K.", "chris k."]]
 BOX_SCORES_FROM = 2019      # ESPN only serves lineups/box scores from 2019 on
 INJURY_SHARE = 0.4          # injured mid-game: starter scored under 40% of projection...
 INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
