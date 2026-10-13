@@ -47,7 +47,7 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
                             # ...and missed the next week (IR slot or no stats, not a bye)
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 5            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 6            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
@@ -137,7 +137,8 @@ def owner_keys(teams: list[dict]) -> dict[int, str]:
 def player_stats(api: Espn, year: int, needed: set[int]) -> dict[int, dict]:
     """Season total and week-by-week fantasy points for the top players (plus any we need), in this league's scoring."""
     sort = {"sortAsc": False, "sortPriority": 1, "value": f"00{year}"}
-    stat_filters = {"filterStatsForSourceIds": {"value": [0]}, "filterStatsForSplitTypeIds": {"value": [0, 1]}}
+    # The same filter ESPN's own player pages use: season totals plus every week's points
+    stat_filters = {"filterStatsForTopScoringPeriodIds": {"value": 18, "additionalValue": [f"00{year}", f"10{year}"]}}
     data = api.league(year, ["kona_player_info"], filt={"players": {
         "filterSlotIds": {"value": PLAYER_SLOT_IDS}, **stat_filters, "sortAppliedStatTotal": sort, "limit": PLAYER_POOL}}) or {}
     raw = {p["id"]: p.get("player", p) for p in data.get("players", [])}
@@ -161,6 +162,7 @@ def player_stats(api: Espn, year: int, needed: set[int]) -> dict[int, dict]:
                 weeks[s["scoringPeriodId"]] = s.get("appliedTotal", 0.0)
         out[pid] = {"name": pl.get("fullName") or f"Player {pid}", "pos": pl.get("defaultPositionId"),
                     "total": total, "weeks": weeks}
+    log(f"  {year}: player stats for {len(out)} players, {sum(1 for s in out.values() if s['weeks'])} with weekly points")
     return out
 
 
