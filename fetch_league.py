@@ -591,6 +591,31 @@ def assemble(league_id: int, results: list[dict]) -> dict:
     }
 
 
+def previous_league_champions(api: Espn, first: int, last: int) -> dict:
+    """Champion and runner-up for every season an older league existed, for the page's title counts."""
+    seasons, name = [], None
+    for year in range(first, last + 1):
+        try:
+            data = api.league(year, ["mTeam", "mSettings", "mStandings"])
+        except SystemExit as e:  # refused for this season; try the rest
+            log(f"{year}: {e}")
+            continue
+        if not data or not data.get("teams"):
+            continue
+        names = member_names(data)
+        key_of = owner_keys(data["teams"])
+        rank = lambda t: t.get("rankCalculatedFinal") or t.get("rankFinal") or 0  # noqa: E731
+        who = lambda t: {"name": names.get(key_of[t["id"]]) or team_name(t), "team": team_name(t)}  # noqa: E731
+        champ = next((t for t in data["teams"] if rank(t) == 1), None)
+        runner = next((t for t in data["teams"] if rank(t) == 2), None)
+        name = (data.get("settings") or {}).get("name") or name
+        seasons.append({"year": year, "size": len(data["teams"]),
+                        "champion": who(champ) if champ else None, "runnerUp": who(runner) if runner else None})
+        log(f"{year}: champion {seasons[-1]['champion']}")
+    return {"generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+            "league": {"id": api.league_id, "name": name}, "seasons": seasons}
+
+
 def current_season() -> int:
     today = dt.date.today()
     return today.year if today.month >= 7 else today.year - 1
@@ -605,6 +630,8 @@ def main() -> None:
     ap.add_argument("--cache", default="data/seasons", help="Folder for finished-season cache")
     ap.add_argument("--refresh", action="store_true", help="Ignore cached seasons and refetch")
     ap.add_argument("--no-box-scores", action="store_true", help="Skip weekly lineups (faster; no start/sit or injury data)")
+    ap.add_argument("--champions-only", action="store_true",
+                    help="Only list each season's champion and runner-up (for an older league), written to --out")
     args = ap.parse_args()
 
     if not args.league_id:
@@ -614,6 +641,16 @@ def main() -> None:
     log(f"Cookies: espn_s2 {'set (' + str(len(s2)) + ' chars)' if s2 else 'NOT set'}, "
         f"SWID {'set (' + str(len(swid)) + ' chars)' if swid else 'NOT set'}")
     api = Espn(league_id, s2 or None, swid or None)
+
+    if args.champions_only:
+        report = previous_league_champions(api, args.start or 2010, args.end or current_season())
+        if not report["seasons"]:
+            sys.exit(f"ESPN returned no seasons for league {league_id}. Your account may no longer have access to it.")
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=1))
+        log(f"Wrote {out} ({len(report['seasons'])} seasons)")
+        return
 
     end = args.end or current_season()
     latest = api.league(end, ["mSettings"])
