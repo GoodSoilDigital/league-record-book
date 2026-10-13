@@ -102,6 +102,12 @@ table { border-collapse: collapse; width: 100%; }
 .board tbody tr:hover { background: var(--sunken); }
 .board tbody tr.sel { background: color-mix(in oklab, var(--accent) 12%, var(--surface)); }
 .board tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.board tfoot td { padding: 0; border-bottom: 0; text-align: left; }
+.toggle-former { width: 100%; text-align: left; background: none; border: 0; padding: 10px; cursor: pointer; color: var(--muted); font: 500 .85rem/1.3 var(--font-body); }
+.toggle-former:hover { color: var(--ink); background: var(--sunken); }
+.toggle-former::before { content: "▸ "; }
+.toggle-former[aria-expanded="true"]::before { content: "▾ "; }
+.former { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; }
 .board td { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: .9rem; }
 .board td:first-child { font-family: var(--font-body); }
 .mgr { display: grid; line-height: 1.2; }
@@ -447,8 +453,8 @@ svg text { font-family: var(--font-body); }
   };
 
   // ---------- State ----------
-  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false, view: "dashboard" };
-  const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeMine: state.tradeMine, view: state.view })); } catch (e) {} };
+  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false, view: "dashboard", showFormer: false };
+  const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeMine: state.tradeMine, view: state.view, showFormer: state.showFormer })); } catch (e) {} };
   const inRange = y => y >= state.from && y <= state.to;
   const isNum = v => v !== null && v !== undefined && !Number.isNaN(v);
 
@@ -603,7 +609,7 @@ svg text { font-family: var(--font-body); }
     $("summary").innerHTML = tiles.map(([k, v, w]) => `<div><span class="eyebrow">${k}</span><span class="big num">${esc(v)}</span><span class="who">${esc(w)}</span></div>`).join("");
   }
 
-  function renderBoard(rows) {
+  function renderBoard(rows, former = []) {
     const sorted = rows.slice().sort((a, b) => cmp(M[state.sortKey], state.sortDir)(a, b) || bestFirst(M.avgFinish)(a, b));
     const leaders = {};
     METRICS.forEach(mm => { const v = rows.map(r => val(mm, r)).filter(x => x !== null); leaders[mm.key] = v.length && mm.better ? (mm.better > 0 ? Math.max(...v) : Math.min(...v)) : undefined; });
@@ -611,11 +617,15 @@ svg text { font-family: var(--font-body); }
       const s = state.sortKey === mm.key ? (state.sortDir > 0 ? "ascending" : "descending") : null;
       return `<th ${s ? `aria-sort="${s}"` : ""} title="${esc(mm.desc)}"><button data-sort="${mm.key}">${mm.short}</button></th>`;
     }).join("")}</tr></thead>`;
-    const body = sorted.map(r => `<tr data-i="${r.i}" class="${r.i === state.sel ? "sel" : ""}"><td><div class="mgr"><b>${esc(r.name)}</b><span>${esc(r.team)}</span></div></td>${METRICS.map(mm => {
+    const body = sorted.map(r => `<tr data-i="${r.i}" class="${r.i === state.sel ? "sel" : ""}"><td><div class="mgr"><b>${esc(r.name)}</b><span>${esc(r.team)}${isFormer(r) ? ` · <span class="former">former</span>` : ""}</span></div></td>${METRICS.map(mm => {
       const v = val(mm, r), cls = [v !== null && v === leaders[mm.key] ? "lead" : "", mm.key === "wae" && v !== null ? (v > 0 ? "pos" : "neg") : ""].join(" ");
       return `<td class="${cls}">${show(mm, r)}</td>`;
     }).join("")}</tr>`).join("");
-    $("board").innerHTML = head + `<tbody>${body}</tbody>`;
+    const names = former.map(r => r.name).join(", ");
+    const foot = former.length ? `<tfoot><tr><td colspan="${METRICS.length + 1}"><button type="button" class="toggle-former" id="toggleFormer" aria-expanded="${state.showFormer}">`
+      + `${state.showFormer ? "Hide" : "Show"} ${former.length} former manager${former.length === 1 ? "" : "s"} (${esc(names)})</button></td></tr></tfoot>` : "";
+    $("board").innerHTML = head + `<tbody>${body}</tbody>` + foot;
+    if (former.length) $("toggleFormer").onclick = () => { state.showFormer = !state.showFormer; save(); render(); };
     $("board").querySelectorAll("[data-sort]").forEach(b => b.onclick = () => {
       const k = b.dataset.sort;
       if (state.sortKey === k) state.sortDir *= -1; else { state.sortKey = k; state.sortDir = -dirOf(M[k]); }
@@ -925,13 +935,19 @@ svg text { font-family: var(--font-body); }
     save();
   }
 
+  // Former managers: didn't play in the last season of the selected range. Hidden unless expanded.
+  const isFormer = r => !r.lines.some(l => l.y === state.to);
+
   function render() {
-    const rows = aggregate().filter(r => r.seasons > 0);
+    const all = aggregate().filter(r => r.seasons > 0);
+    const former = all.filter(isFormer);
+    let rows = state.showFormer ? all : all.filter(r => !isFormer(r));
+    if (!rows.length) rows = all;
     if (!rows.some(r => r.i === state.sel)) state.sel = rows[0].i;
     if (!M[state.metric] || M[state.metric].noChart) state.metric = "avgFinish";
     if (!M[state.sortKey]) state.sortKey = "avgFinish";
     $("mgrSelect").innerHTML = rows.map(r => `<option value="${r.i}">${esc(r.name)} · ${esc(r.team)}</option>`).join("");
-    renderSummary(rows); renderBoard(rows); renderTabs(); renderChart(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows); renderRecords();
+    renderSummary(rows); renderBoard(rows, former); renderTabs(); renderChart(rows); renderProfile(rows); renderMatrix(rows); renderTrades(rows); renderRecords();
   }
 
   function init() {
