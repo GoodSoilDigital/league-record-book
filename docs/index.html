@@ -426,6 +426,24 @@ svg text { font-family: var(--font-body); }
       years, sizes, playoffTeams: Object.fromEntries(years.map(y => [y, PO])), seasons, games, trades, boxScoresFrom: years[0] };
   }
 
+  // Championships won in the league's earlier, separate ESPN league (2016–2018), not in this league's data.
+  // previous-league.json (written by the "Previous league champions" workflow) supplies names and years;
+  // until it exists, this hand-entered list stands in. They count whenever From is the first season on record.
+  const PREVIOUS_LEAGUE_TITLES = ["Michael B.", "Austin R.", "Alex S."];
+  let PREV = null;
+  const pastTitleYears = i => {
+    if (D.sample || state.from !== D.years[0]) return [];
+    const name = ((D.managers[i] || {}).name || "").trim().toLowerCase();
+    if (PREV && PREV.seasons) return PREV.seasons.filter(s => s.champion && (s.champion.name || "").trim().toLowerCase() === name).map(s => s.year);
+    return PREVIOUS_LEAGUE_TITLES.filter(n => n.trim().toLowerCase() === name).map(() => null);
+  };
+  const pastTitles = i => pastTitleYears(i).length;
+  const pastNote = i => {
+    const ys = pastTitleYears(i);
+    if (!ys.length) return "";
+    return ys.every(y => y) ? `${ys.join(", ")} in the previous league` : `${ys.length} from the previous league`;
+  };
+
   // ---------- State ----------
   const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false, view: "dashboard" };
   const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeMine: state.tradeMine, view: state.view })); } catch (e) {} };
@@ -459,7 +477,7 @@ svg text { font-family: var(--font-body); }
         regW: (sum("w") || 0) + (sum("t") || 0) / 2, xw: sum("xw") || 0,
         wae: g ? ((sum("w") || 0) + (sum("t") || 0) / 2 - (sum("xw") || 0)) / g * 100 : null,
         playoffs: sum("playoffs"), poSeasons: lines.filter(l => isNum(l.playoffs) || typeof l.playoffs === "boolean").length,
-        lasts: sum("last"), titles: sum("champ") || 0,
+        lasts: sum("last"), titles: (sum("champ") || 0) + pastTitles(i), pastT: pastTitles(i),
         inj: sum("inj"), ss: ssT ? sum("ssC") / ssT * 100 : null,
         busts: sum("r1Bust"), lateHits: sum("lateHits"),
       };
@@ -681,7 +699,7 @@ svg text { font-family: var(--font-body); }
     }).join("");
     $("profile").innerHTML = `
       <div class="profile-head">
-        <div style="display:grid;gap:4px"><span class="eyebrow">Manager profile</span><h2>${esc(r.name)}</h2><span class="muted">${esc(r.team)} · ${recStr(r.w, r.l, r.t)} overall · ${r.titles} title${r.titles === 1 ? "" : "s"}</span></div>
+        <div style="display:grid;gap:4px"><span class="eyebrow">Manager profile</span><h2>${esc(r.name)}</h2><span class="muted">${esc(r.team)} · ${recStr(r.w, r.l, r.t)} overall · ${r.titles} title${r.titles === 1 ? "" : "s"}${r.pastT ? ` (${pastNote(r.i)})` : ""}</span></div>
       </div>
       <div class="stats">
         <div><span class="v num">${show(M.avgFinish, r)}</span><span class="k">Avg finish${rk("avgFinish")}</span></div>
@@ -849,7 +867,7 @@ svg text { font-family: var(--font-body); }
       w.forEach(([m, s]) => { if (s === hi) highs[m] = (highs[m] || 0) + 1; if (s === lo) lows[m] = (lows[m] || 0) + 1; });
     });
     const counts = obj => Object.entries(obj).map(([m, n]) => ({ m: +m, n }));
-    const titles = counts(Object.fromEntries(D.managers.map((_, m) => [m, D.years.filter(inRange).filter(y => ((D.seasons[y] || [])[m] || {}).finish === 1).length])));
+    const titles = counts(Object.fromEntries(D.managers.map((_, m) => [m, D.years.filter(inRange).filter(y => ((D.seasons[y] || [])[m] || {}).finish === 1).length + pastTitles(m)])));
     const span = r => r.from.y === r.to.y ? `${r.from.y}, wk ${r.from.wk}–${r.to.wk}` : `${r.from.y} wk ${r.from.wk} – ${r.to.y} wk ${r.to.wk}`;
 
     const game = (title, list, f, high, opts) => ({ title, list: top(list, f, high), val: d => opts.val(d), who: d => nm(d.m), ctx: opts.ctx });
@@ -878,7 +896,7 @@ svg text { font-family: var(--font-body); }
       ["All time", [
         { title: "Longest winning streak", list: top(streaks.w, r => r.n, true), val: r => `${r.n} W`, who: r => nm(r.m), ctx: span },
         { title: "Longest losing streak", list: top(streaks.l, r => r.n, true), val: r => `${r.n} L`, who: r => nm(r.m), ctx: span },
-        { title: "Most championships", list: top(titles.filter(r => r.n), r => r.n, true), val: r => String(r.n), who: r => nm(r.m), ctx: () => "" },
+        { title: "Most championships", list: top(titles.filter(r => r.n), r => r.n, true), val: r => String(r.n), who: r => nm(r.m), ctx: r => pastTitles(r.m) ? `Includes ${pastNote(r.m)}` : "" },
         { title: "Most weekly high scores", list: top(counts(highs), r => r.n, true), val: r => String(r.n), who: r => nm(r.m), ctx: () => "Top score of the week, regular season" },
         { title: "Most weekly low scores", list: top(counts(lows), r => r.n, true), val: r => String(r.n), who: r => nm(r.m), ctx: () => "Lowest score of the week, regular season" },
       ]],
@@ -937,6 +955,10 @@ svg text { font-family: var(--font-body); }
       if (res.ok) { const j = await res.json(); if (j && j.managers && j.years && j.years.length) D = j; }
     } catch (e) {}
     if (!D) D = sampleData();
+    try {
+      const res = await fetch("previous-league.json", { cache: "no-store" });
+      if (res.ok) PREV = await res.json();
+    } catch (e) {}
     init();
   })();
 })();
