@@ -38,6 +38,10 @@ LATE_ROUND = 7              # late gem: drafted in round 7 or later
 POSITION_NAMES = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
 PLAYER_POOL = 600           # top players by season points pulled for rankings (covers 40+ deep at every position)
 
+# Seasons this group played in a separate, earlier ESPN league: (league ID, first season, last season).
+# They're pulled in as regular seasons. Managers match across leagues by ESPN account.
+PREVIOUS_LEAGUES = [(1446935, 2016, 2018)]
+
 # Display names that belong to one person who shows up under more than one ESPN account
 # (for example after changing the email on their ESPN login). Each inner list is one person.
 SAME_PERSON = [["Nathan G."]]
@@ -588,6 +592,8 @@ def assemble(league_id: int, results: list[dict]) -> dict:
         "games": games,
         "trades": trades,
         "tradeCheck": {str(r["year"]): r.get("tradeCheck") for r in results},
+        "previousLeagues": [{"id": pid, "first": a, "last": b} for pid, a, b in PREVIOUS_LEAGUES
+                            if any(r.get("leagueId") == pid for r in results)],
     }
 
 
@@ -665,19 +671,33 @@ def main() -> None:
     cache = Path(args.cache)
     cache.mkdir(parents=True, exist_ok=True)
     want_box = not args.no_box_scores
+
+    # Earlier seasons played in a separate ESPN league come first, then this league's seasons
+    plan = []
+    for prev_id, first, last in PREVIOUS_LEAGUES:
+        prev_api = Espn(prev_id, s2 or None, swid or None)
+        plan += [(prev_api, y, cache / f"{prev_id}-{y}.json") for y in range(first, last + 1) if y < start]
+    plan += [(api, y, cache / f"{y}.json") for y in range(start, end + 1)]
+
     results = []
-    for year in range(start, end + 1):
-        path = cache / f"{year}.json"
+    for season_api, year, path in plan:
         if path.exists() and not args.refresh:
             r = json.loads(path.read_text())
             if r.get("v") == CACHE_VERSION and (r["boxScores"] or not want_box or year < BOX_SCORES_FROM):
                 log(f"{year}: from cache")
                 results.append(r)
                 continue
-        log(f"{year}: fetching")
-        r = process_season(api, year, want_box)
+        log(f"{year}: fetching" + ("" if season_api is api else f" from previous league {season_api.league_id}"))
+        try:
+            r = process_season(season_api, year, want_box)
+        except SystemExit as e:
+            if season_api is api:
+                raise
+            log(f"{year}: skipped previous league season ({e})")  # don't let the old league sink the weekly update
+            continue
         if not r:
             continue
+        r["leagueId"] = season_api.league_id
         if r["complete"]:
             path.write_text(json.dumps(r, separators=(",", ":")))
         results.append(r)
