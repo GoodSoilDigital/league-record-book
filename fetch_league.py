@@ -33,8 +33,8 @@ NON_STARTER_SLOTS = {BENCH_SLOT, IR_SLOT}
 PLAYER_SLOT_IDS = [0, 2, 4, 6, 16, 17]  # QB, RB, WR, TE, D/ST, K
 
 TOP_AT_POSITION = 20        # first-round bust: finished outside the top 20 at their position
-GEM_TOP = {1: 12, 4: 12}    # late gem: QB and TE must finish top 12; everyone else top 20
-LATE_ROUND = 4              # drafted outside the top 3 rounds
+GEM_TOP = {1: 8, 2: 20, 3: 20, 4: 8}  # late gem: finish top 8 at QB/TE, top 20 at RB/WR
+LATE_ROUND = 7              # late gem: drafted in round 7 or later
 POSITION_NAMES = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
 PLAYER_POOL = 600           # top players by season points pulled for rankings (covers 40+ deep at every position)
 
@@ -48,7 +48,7 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
 TRADED_MESSAGE = 244        # message type for a completed trade in the league activity feed
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 9            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 12            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
@@ -238,9 +238,9 @@ def completed_trades(api: Espn, year: int, key_of: dict[int, str], last_sp: int)
     trades = []
     for t in sorted(found.values(), key=lambda t: t["date"]):
         wk = min((sp for sp, ko in kickoffs.items() if ko > t["date"]), default=last_sp + 1)
-        if wk > last_sp:  # processed after the last week we have results for
+        if wk > last_sp + 1:  # more than a week past the latest results
             continue
-        trades.append({"sp": wk, "date": t["date"], "moves": t["moves"]})
+        trades.append({"sp": wk, "date": t["date"], "moves": t["moves"], "pending": wk > last_sp})
     unknown = sum(1 for t in trades for m in t["moves"] if m["from"] not in key_of or m["to"] not in key_of)
     diag = {"activityTopics": len(topics), "trades": len(trades), "messageTypes": {str(k): v for k, v in kinds.items()},
             "feedEntriesPerTrade": {str(n): sum(1 for t in found.values() if t["entries"] == n)
@@ -291,7 +291,7 @@ def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int,
                           "after": round(sum(g["ptsAfter"] for g in got), 2),
                           "recBefore": record(tid, 1, wk - 1), "recAfter": record(tid, wk, 99)})
         if len(sides) >= 2:
-            out.append({"wk": wk, "date": t["date"], "sides": sides})
+            out.append({"wk": wk, "date": t["date"], "sides": sides, "pending": t.get("pending", False)})
     return out
 
 
@@ -475,7 +475,8 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             for tid, k in key_of.items():
                 lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
 
-    # Trades: completed trades only, from the league's Recent Activity feed
+    # Trades: completed trades from the league's Recent Activity feed. ESPN only keeps that feed for the
+    # current season, so earlier seasons come back empty.
     trades, diag = [], {}
     if year >= 2018:
         try:
@@ -518,7 +519,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             rank = season_rank.get(p["playerId"])  # not in the pool at all = far outside the top 20
             if p.get("roundId") == 1 and (rank is None or rank > TOP_AT_POSITION):
                 lines[k]["r1Bust"] += 1
-            elif p.get("roundId", 0) >= LATE_ROUND and rank is not None and rank <= GEM_TOP.get(s["pos"], TOP_AT_POSITION):
+            elif p.get("roundId", 0) >= LATE_ROUND and rank is not None and rank <= GEM_TOP.get(s["pos"], 0):
                 lines[k]["lateHits"] += 1
 
     trade_report = analyze_trades(trades, stats, key_of, results, rosters, last_sp) if trades and stats else []
