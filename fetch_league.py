@@ -42,11 +42,13 @@ PLAYER_POOL = 600           # top players by season points pulled for rankings (
 # (for example after changing the email on their ESPN login). Each inner list is one person.
 SAME_PERSON = [["Nathan G."]]
 BOX_SCORES_FROM = 2019      # ESPN only serves lineups/box scores from 2019 on
-# Injured mid-game: a starter who played, then recorded no stats at all the next week (not even a target)
-# or sat on IR, outside a bye. ESPN only keeps a player's current injury tag, so past tags can't be used.
+INJURY_SHARE = 0.4          # injured mid-game: starter scored under 40% of projection...
+INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
+                            # ...and missed the next week (IR slot or no stats, not a bye)
+TRADED_MESSAGE = 244        # message type for a completed trade in the league activity feed
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 8            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 9            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits"]
@@ -103,6 +105,36 @@ class Espn:
     def bye_weeks(self, year: int) -> dict[int, int]:
         data = self._get(f"{BASE}/seasons/{year}", [("view", "proTeamSchedules_wl")]) or {}
         return {t["id"]: t.get("byeWeek") for t in (data.get("settings") or {}).get("proTeams", [])}
+
+    def week_kickoffs(self, year: int) -> dict[int, int]:
+        """First NFL kickoff of each week, in epoch milliseconds."""
+        data = self._get(f"{BASE}/seasons/{year}", [("view", "proTeamSchedules_wl")]) or {}
+        first = {}
+        for team in (data.get("settings") or {}).get("proTeams", []):
+            for sp, games in (team.get("proGamesByScoringPeriod") or {}).items():
+                for g in games:
+                    if g.get("date"):
+                        first[int(sp)] = min(first.get(int(sp), g["date"]), g["date"])
+        return first
+
+    def activity(self, year: int) -> list[dict]:
+        """The league's Recent Activity feed for a season (adds, drops, trades), oldest first."""
+        url = f"{BASE}/seasons/{year}/segments/0/leagues/{self.league_id}/communication/"
+        start = int(dt.datetime(year, 6, 1, tzinfo=dt.timezone.utc).timestamp() * 1000)
+        end = int(dt.datetime(year + 1, 3, 1, tzinfo=dt.timezone.utc).timestamp() * 1000)
+        topics, offset, page = [], 0, 50
+        while True:
+            filt = {"topics": {
+                "filterType": {"value": ["ACTIVITY_TRANSACTIONS"]},
+                "filterDateRange": {"value": start, "additionalValue": end},
+                "sortMessageDate": {"sortPriority": 1, "sortAsc": True},
+                "limit": page, "limitPerMessageSet": {"value": 25}, "offset": offset}}
+            data = self._get(url, [("view", "kona_league_communication")], filt) or {}
+            batch = data.get("topics", [])
+            topics += batch
+            if len(batch) < page or offset > 5000:
+                return topics
+            offset += page
 
 
 # ---------- Helpers ----------
@@ -178,51 +210,43 @@ def position_ranks(stats: dict[int, dict], points) -> dict[int, int]:
     return ranks
 
 
-def fetch_trades(api: Espn, year: int, last_sp: int) -> list[dict]:
-    """Executed trades for the season: which players moved, between which ESPN teams, and in which week."""
-    found, kinds = {}, defaultdict(int)
-    for sp in range(1, last_sp + 1):
-        try:
-            resp = api.league(year, ["mTransactions2"], {"scoringPeriodId": sp}) or {}
-        except Exception as e:  # noqa: BLE001
-            log(f"  {year} week {sp}: couldn't load transactions ({e})")
+def completed_trades(api: Espn, year: int, key_of: dict[int, str], last_sp: int) -> tuple[list[dict], dict]:
+    """Completed trades from the league's Recent Activity feed: the same list as ESPN's Recent Activity page
+    filtered to trades. Each trade is placed in the first week that kicked off after it went through."""
+    topics = api.activity(year)
+    kickoffs = api.week_kickoffs(year)
+    team = lambda v: int(v) if str(v).lstrip("-").isdigit() else v  # noqa: E731
+    kinds, found = defaultdict(int), {}
+    for t in topics:
+        moves = []
+        for m in t.get("messages", []):
+            kinds[m.get("messageTypeId")] += 1
+            if m.get("messageTypeId") == TRADED_MESSAGE and m.get("targetId"):
+                moves.append({"pid": m["targetId"], "from": team(m.get("from")), "to": team(m.get("to"))})
+        if not moves:
             continue
-        for t in resp.get("transactions", []):
-            kinds[f"{t.get('type')}/{t.get('status')}"] += 1
-            if not str(t.get("type", "")).startswith("TRADE") or t.get("status") != "EXECUTED":
-                continue
-            items = [i for i in t.get("items", []) if i.get("type") == "TRADE" and i.get("playerId")]
-            if not items:
-                continue
-            moves = tuple(sorted((i["playerId"], i.get("fromTeamId"), i.get("toTeamId")) for i in items))
-            if moves not in found:  # a proposal and its acceptance can both show as executed
-                found[moves] = {"sp": t.get("scoringPeriodId") or sp,
-                                "date": t.get("processDate") or t.get("proposedDate"),
-                                "moves": [{"pid": p, "from": f, "to": to} for p, f, to in moves]}
-    log(f"  {year}: {len(found)} trades; transaction types seen: {dict(kinds) or 'none'}")
-    return sorted(found.values(), key=lambda t: (t["sp"], t["date"] or 0))
-
-
-def infer_trades(rosters: dict[int, dict[int, list]]) -> list[dict]:
-    """Trades read straight from weekly rosters: players who went directly from one team's roster to another's
-    between consecutive weeks, with players moving in both directions. Free-agent and waiver pickups pass
-    through the player pool, and offers that were never accepted never touch a roster, so neither shows up."""
-    out = []
-    weeks = sorted(rosters)
-    for prev, cur in zip(weeks, weeks[1:]):
-        if cur != prev + 1:
+        # The feed lists each trade twice, "Trade Accepted" then "Trade Processed", with the same players.
+        # Keep one, dated by the later (processed) entry.
+        key = frozenset((m["pid"], m["from"], m["to"]) for m in moves)
+        date = t.get("date") or 0
+        prev = found.get(key)
+        if prev and abs(date - prev["date"]) < 14 * 86400 * 1000:
+            prev["date"] = max(prev["date"], date)
+            prev["entries"] += 1
             continue
-        owner_before = {e["id"]: tid for tid, entries in rosters[prev].items() for e in entries}
-        by_pair = defaultdict(list)
-        for tid, entries in rosters[cur].items():
-            for e in entries:
-                was = owner_before.get(e["id"])
-                if was is not None and was != tid:
-                    by_pair[frozenset((was, tid))].append({"pid": e["id"], "from": was, "to": tid})
-        for moves in by_pair.values():
-            if len({m["to"] for m in moves}) == 2:  # players went both ways
-                out.append({"sp": cur, "date": None, "moves": moves})
-    return out
+        found[key] = {"date": date, "moves": moves, "entries": 1}
+    trades = []
+    for t in sorted(found.values(), key=lambda t: t["date"]):
+        wk = min((sp for sp, ko in kickoffs.items() if ko > t["date"]), default=last_sp + 1)
+        if wk > last_sp:  # processed after the last week we have results for
+            continue
+        trades.append({"sp": wk, "date": t["date"], "moves": t["moves"]})
+    unknown = sum(1 for t in trades for m in t["moves"] if m["from"] not in key_of or m["to"] not in key_of)
+    diag = {"activityTopics": len(topics), "trades": len(trades), "messageTypes": {str(k): v for k, v in kinds.items()},
+            "feedEntriesPerTrade": {str(n): sum(1 for t in found.values() if t["entries"] == n)
+                                    for n in sorted({t["entries"] for t in found.values()})},
+            "movesWithUnknownTeam": unknown}
+    return trades, diag
 
 
 def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int, str],
@@ -280,7 +304,7 @@ def parse_entry(entry: dict, sp: int) -> dict:
             continue
         if s.get("statSourceId") == 0:
             actual = s.get("appliedTotal", 0.0)
-            played = any(v for v in (s.get("stats") or {}).values())  # any non-zero stat, targets included
+            played = bool(s.get("stats"))
         elif s.get("statSourceId") == 1:
             proj = s.get("appliedTotal", 0.0)
     return {
@@ -348,7 +372,7 @@ def lineup_metrics(api: Espn, year: int, data: dict, counted: set, complete: boo
                 ss_t[tid] += 1
                 if not any(b["actual"] > s["actual"] and s["slot"] in b["eligible"] for b in bench):
                     ss_c[tid] += 1
-                if s["played"]:
+                if s["played"] and s["proj"] >= INJURY_MIN_PROJECTION and s["actual"] < INJURY_SHARE * s["proj"]:
                     after = next_week.get(s["id"])
                     if after and (after["slot"] == IR_SLOT
                                   or (not after["played"] and byes.get(after["pro_team"]) != sp + 1)):
@@ -451,18 +475,24 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             for tid, k in key_of.items():
                 lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
 
-    # Trades: from roster movement when we have weekly rosters. ESPN's transaction feed also returns
-    # offers visible only to the signed-in account, so it's kept just as a cross-check.
-    feed = []
+    # Trades: completed trades only, from the league's Recent Activity feed
+    trades, diag = [], {}
     if year >= 2018:
         try:
-            feed = fetch_trades(api, year, last_sp)
+            trades, diag = completed_trades(api, year, key_of, last_sp)
         except Exception as e:  # noqa: BLE001
-            log(f"  {year}: couldn't load transaction feed ({e})")
-    trades = infer_trades(rosters) if rosters else feed
-    seen = {(m["pid"], m["to"]) for t in trades for m in t["moves"]}
-    diag = {"feedTrades": len(feed), "rosterTrades": len(trades) if rosters else None,
-            "feedConfirmed": sum(1 for t in feed if any((m["pid"], m["to"]) in seen for m in t["moves"]))}
+            log(f"  {year}: couldn't load the activity feed ({e}); skipping trades")
+            diag = {"error": str(e)[:200]}
+    if rosters and trades:  # cross-check: is each player on his new team's roster in the trade week or the next?
+        on_new = lambda m, wk: any(e["id"] == m["pid"] for w in (wk, wk + 1) for e in rosters.get(w, {}).get(m["to"], []))  # noqa: E731
+        moves = [(m, t["sp"]) for t in trades for m in t["moves"]]
+        diag["onNewRoster"] = sum(1 for m, wk in moves if on_new(m, wk))
+        diag["moves"] = len(moves)
+        flipped = sum(1 for m, wk in moves if on_new({"pid": m["pid"], "to": m["from"]}, wk))
+        if flipped > diag["onNewRoster"]:  # ESPN's from/to read the other way round
+            for m, _ in moves:
+                m["from"], m["to"] = m["to"], m["from"]
+            diag["swappedDirection"], diag["onNewRoster"] = True, flipped
     log(f"  {year}: trades {diag}")
 
     # Player points: season totals for the draft, week by week for trades
