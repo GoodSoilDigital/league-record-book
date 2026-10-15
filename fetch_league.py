@@ -53,7 +53,7 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
 TRADED_MESSAGE = 244        # message type for a completed trade in the league activity feed
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 14            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 15            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits", "posPts"]
@@ -257,6 +257,19 @@ def completed_trades(api: Espn, year: int, key_of: dict[int, str], last_sp: int)
 # Lineup slots each position can fill: QB, RB, WR, TE, flex spots, K, D/ST
 POS_SLOTS = {"QB": {0, 7}, "RB": {2, 3, 23, 7}, "WR": {3, 4, 5, 23, 7}, "TE": {5, 6, 23, 7}, "K": {17}, "D/ST": {16}}
 MINOR_TRADE_STARTS = 2  # a trade is minor if no player in it started more than this many weeks for his new team
+
+
+def roster_acquisitions(api: Espn, year: int, weeks: list[int]) -> dict[int, dict[int, list]]:
+    """Each team's roster for each week from ESPN's roster data, which (unlike box scores) records how and
+    when every player was acquired."""
+    out = {}
+    for sp in weeks:
+        data = api.league(year, ["mRoster"], {"scoringPeriodId": sp}) or {}
+        out[sp] = {t["id"]: [{"id": e.get("playerId") or ((e.get("playerPoolEntry") or {}).get("player") or {}).get("id"),
+                              "acq": e.get("acquisitionType"), "acqDate": e.get("acquisitionDate")}
+                             for e in ((t.get("roster") or {}).get("entries") or [])]
+                   for t in data.get("teams", [])}
+    return out
 
 
 def roster_trades(rosters: dict[int, dict[int, list]]) -> list[dict]:
@@ -516,7 +529,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
 
     games, weekly, counted, tiers = [], defaultdict(dict), set(), defaultdict(int)
     results = defaultdict(dict)  # team -> regular-season matchup period -> 1 win, 0 loss, 0.5 tie
-    scores = {}  # (regular-season week, team) -> (team score, opponent score)
+    week_scores = {}  # (regular-season week, team) -> (team score, opponent score)
     for m in sorted(data.get("schedule", []), key=lambda m: m.get("matchupPeriodId", 0)):
         home, away = m.get("home"), m.get("away")
         if not home or not away or m.get("winner") == "UNDECIDED":
@@ -546,7 +559,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                 ln["w" if mine > theirs else "l" if mine < theirs else "t"] += 1
                 weekly[mp][tid] = mine
                 results[tid][mp] = 1 if mine > theirs else 0 if mine < theirs else 0.5
-                scores[(mp, tid)] = (mine, theirs)
+                week_scores[(mp, tid)] = (mine, theirs)
     for scores in weekly.values():
         for tid, pts in scores.items():
             others = [p for o, p in scores.items() if o != tid]
@@ -579,8 +592,17 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
     # Trades. Weekly rosters record how each player joined his team, which gives every completed trade from
     # 2019 on. While this season's Recent Activity feed exists it's used instead (it also has trades too new
     # to show on a roster yet), and the two are compared as a check on the roster method.
+    roster_found, acq_seen = [], {}
     try:
-        roster_found = roster_trades(rosters) if rosters else []
+        if rosters:
+            acq = rosters
+            if not any(e.get("acq") == "TRADE" for by in rosters.values() for es in by.values() for e in es):
+                acq = roster_acquisitions(api, year, sorted(rosters))  # box scores lack acquisition details
+            for by in acq.values():
+                for es in by.values():
+                    for e in es:
+                        acq_seen[str(e.get("acq"))] = acq_seen.get(str(e.get("acq")), 0) + 1
+            roster_found = roster_trades(acq)
     except Exception:  # noqa: BLE001
         roster_found = []
         trade_errors.append(traceback.format_exc(limit=4)[-1500:])
@@ -594,6 +616,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
     trades = feed or roster_found
     feed_moves = {(m["pid"], m["to"]) for t in feed for m in t["moves"]}
     roster_moves = {(m["pid"], m["to"]) for t in roster_found for m in t["moves"]}
+    diag["acquisitionTypes"] = acq_seen
     diag.update({"source": "activity" if feed else "rosters", "rosterTrades": len(roster_found),
                  "feedMoves": len(feed_moves), "rosterMovesMatchingFeed": len(feed_moves & roster_moves) if feed else None})
     log(f"  {year}: trades {diag}")
@@ -638,7 +661,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                       "keeper": bool(p.get("keeper")), "live": not complete})
 
     try:
-        trade_report = analyze_trades(trades, stats, key_of, rosters, scores, reg_periods, last_sp) if trades and stats else []
+        trade_report = analyze_trades(trades, stats, key_of, rosters, week_scores, reg_periods, last_sp) if trades and stats else []
     except Exception:  # noqa: BLE001  (a bug here shouldn't sink the whole update; the error is saved for review)
         trade_report = []
         trade_errors.append(traceback.format_exc(limit=4)[-1500:])
