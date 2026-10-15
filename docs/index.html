@@ -1037,22 +1037,28 @@ svg text { font-family: var(--font-body); }
   // Grade each side from points per week vs. no trade, nudged a step by games the trade won or lost
   const GRADES = ["F", "D", "C", "B", "A", "A+"], GPA = { "A+": 4.3, A: 4, B: 3, C: 2, D: 1, F: 0 };
   const RANK_SWING = 10;  // spots a player has to move for a bought-low / sold-high tag
+  const MIN_WEEKS = 3;    // games needed after a trade before it gets a grade, a winner or tags
+  const weeksSince = t => Math.max(0, ...t.sides.map(s => (s.cf && s.cf.weeks) || 0));
+  const judged = t => !t.pending && !t.minor && weeksSince(t) >= MIN_WEEKS;
   function gradeOf(s, t) {
     if (t && t.minor) return "N/A";  // nobody in the deal started more than 2 weeks for his new team
     const cf = s.cf;
-    if (!cf || !cf.weeks) return null;
+    if (!cf || !cf.weeks) return "N/A";  // no lineup history (before 2019) or no games since
+    if (cf.weeks < MIN_WEEKS) return "TBD";  // too few games since the trade to judge it
     const p = cf.perWeek;
     let g = p >= 8 ? 5 : p >= 4 ? 4 : p >= 1.5 ? 3 : p > -1.5 ? 2 : p > -4 ? 1 : 0;
     const swing = (cf.wonBy || 0) - (cf.lostBy || 0);
     if (swing >= 1) g++; else if (swing <= -1) g--;
     return GRADES[Math.max(0, Math.min(5, g))];
   }
-  const gradeClass = g => !g || g === "N/A" ? "g-none" : g.startsWith("A") || g === "B" ? "g-good" : g === "C" ? "g-mid" : "g-bad";
+  const gradeClass = g => !g || g === "N/A" || g === "TBD" ? "g-none" : g.startsWith("A") || g === "B" ? "g-good" : g === "C" ? "g-mid" : "g-bad";
   function tradeVerdict(t) {
     if (t.pending) return { winner: null, text: "Too early to judge · no games played since" };
     if (t.minor) return { winner: null, text: "Minor trade · not graded" };
+    if (t.sides.every(s => !s.cf)) return { winner: null, text: "Not graded · ESPN has no lineups for this season" };
+    if (weeksSince(t) < MIN_WEEKS) return { winner: null, text: `Too early to judge · ${weeksSince(t)} of ${MIN_WEEKS} weeks played since` };
     const graded = t.sides.filter(s => s.cf && s.cf.weeks);
-    if (graded.length < 2) return { winner: null, text: "Not enough games after the trade to judge" };
+    if (graded.length < 2) return { winner: null, text: t.sides.every(s => !s.cf) ? "Not graded · ESPN has no lineups for this season" : "Not enough games after the trade to judge" };
     const best = graded.slice().sort((a, b) => b.cf.perWeek - a.cf.perWeek);
     const gap = best[0].cf.perWeek - best[1].cf.perWeek;
     return gap < 1.5 ? { winner: null, text: `Even · within ${gap.toFixed(1)} pts/week vs. no trade` }
@@ -1081,7 +1087,7 @@ svg text { font-family: var(--font-body); }
       t.sides.forEach(s => {
         const c = card[s.m] || (card[s.m] = { n: 0, won: 0, lost: 0, even: 0, net: 0, swing: 0, gpa: [], minor: 0 });
         c.n++; if (t.minor) c.minor++;
-        const graded = !t.pending && !t.minor;  // minor trades count as trades but don't move grades or totals
+        const graded = judged(t);  // minor or too-recent trades count as trades but don't move grades or totals
         const g = gradeOf(s, t); if (graded && g && GPA[g] !== undefined) c.gpa.push(GPA[g]);
         if (s.cf && s.cf.weeks && graded) { c.net += s.cf.net; c.swing += (s.cf.wonBy || 0) - (s.cf.lostBy || 0); }
         if (graded) { if (v.winner === null) c.even++; else if (v.winner === s.m) c.won++; else c.lost++; }
@@ -1099,8 +1105,9 @@ svg text { font-family: var(--font-body); }
     const shown = inYear.filter(t => (state.tradeTeam === "all" || t.sides.some(s => s.m === state.tradeTeam)) && !(state.tradeHideMinor && t.minor))
       .sort((a, b) => b.y - a.y || b.wk - a.wk);
     const rk = (pos, n) => isNum(n) ? `${pos}${n}` : "—";
+    let tagsOn = true;  // set per trade: no bought-low / sold-high calls until it has enough games
     const tag = (before, after, bought) => {
-      if (!isNum(before) || !isNum(after)) return "";
+      if (!tagsOn || !isNum(before) || !isNum(after)) return "";
       const moved = before - after;  // positive = ranked higher afterward
       if (Math.abs(moved) < RANK_SWING) return "";
       const good = bought ? moved > 0 : moved < 0;
@@ -1112,15 +1119,16 @@ svg text { font-family: var(--font-body); }
       + `<span class="sub">${g.ptsAfter} pts after${isNum(g.starts) ? ` · started ${g.starts} wk${g.starts === 1 ? "" : "s"} (${(g.started || 0).toFixed(1)} pts) for ${bought ? name(side.m) : name(g.to)}` : ""}${!bought && isNum(g.to) ? "" : isNum(g.from) ? ` · from ${name(g.from)}` : ""}</span></div>`;
     $("tradeList").innerHTML = shown.length ? shown.map(t => {
       const v = tradeVerdict(t);
+      tagsOn = judged(t);
       const sides = t.sides.map(s => {
         const g = t.pending ? null : gradeOf(s, t), cf = s.cf || {}, season = ((D.seasons[t.y] || [])[s.m]);
         const label = season ? finishLabel(t.y, season) : null;
         return `<div class="side ${!t.pending && v.winner === s.m ? "won" : ""}">
           <div class="side-name"><span class="grade ${gradeClass(g)}" title="Trade grade">${g || "—"}</span><b>${name(s.m)}</b>${label ? `<span class="pill ${LABEL_PILL[label]}">${label}</span>` : ""}</div>
           <div class="side-totals four">
-            <div data-tip="Points per week vs. the same lineups without the trade, over ${cf.weeks || 0} regular-season weeks"><span class="v ${cf.perWeek > 0 ? "pos" : cf.perWeek < 0 ? "neg" : ""}">${signed(cf.perWeek)}</span><span class="k">Pts/wk vs. no trade</span></div>
-            <div data-tip="Games the trade turned into wins (+) or losses (−)"><span class="v">${isNum(cf.wonBy) ? `+${cf.wonBy} / −${cf.lostBy}` : "—"}</span><span class="k">Games swung</span></div>
-            <div data-tip="Team points per game before → after the trade, regular season"><span class="v">${isNum(s.ppgBefore) ? s.ppgBefore.toFixed(1) : "—"} → ${isNum(s.ppgAfter) ? s.ppgAfter.toFixed(1) : "—"}</span><span class="k">Team PPG</span></div>
+            <div data-tip="Points per week vs. the same lineups without the trade, over ${cf.weeks || 0} regular-season weeks"><span class="v ${tagsOn && cf.perWeek > 0 ? "pos" : tagsOn && cf.perWeek < 0 ? "neg" : ""}">${tagsOn ? signed(cf.perWeek) : "—"}</span><span class="k">Pts/wk vs. no trade</span></div>
+            <div data-tip="Games the trade turned into wins (+) or losses (−)"><span class="v">${tagsOn && isNum(cf.wonBy) ? `+${cf.wonBy} / −${cf.lostBy}` : "—"}</span><span class="k">Games swung</span></div>
+            <div data-tip="Team points per game before → after the trade, regular season"><span class="v">${isNum(s.ppgBefore) ? s.ppgBefore.toFixed(1) : "—"} → ${tagsOn && isNum(s.ppgAfter) ? s.ppgAfter.toFixed(1) : "—"}</span><span class="k">Team PPG</span></div>
             <div><span class="v">${isNum(s.started) ? s.started.toFixed(1) : "—"}</span><span class="k">Started pts</span></div>
           </div>
           <div class="got"><span class="k-label">Received</span>${s.got.length ? s.got.map(gp => playerRow(gp, true, s)).join("") : `<span class="muted">Nothing</span>`}</div>
