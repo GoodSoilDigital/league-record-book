@@ -53,7 +53,7 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
 TRADED_MESSAGE = 244        # message type for a completed trade in the league activity feed
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 15            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 16            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits", "posPts"]
@@ -259,16 +259,43 @@ POS_SLOTS = {"QB": {0, 7}, "RB": {2, 3, 23, 7}, "WR": {3, 4, 5, 23, 7}, "TE": {5
 MINOR_TRADE_STARTS = 2  # a trade is minor if no player in it started more than this many weeks for his new team
 
 
-def roster_acquisitions(api: Espn, year: int, weeks: list[int]) -> dict[int, dict[int, list]]:
-    """Each team's roster for each week from ESPN's roster data, which (unlike box scores) records how and
-    when every player was acquired."""
+def find_key(obj, key):
+    """First value stored under `key` anywhere inside nested dicts and lists."""
+    if isinstance(obj, dict):
+        if obj.get(key) is not None:
+            return obj[key]
+        for v in obj.values():
+            found = find_key(v, key)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for v in obj:
+            found = find_key(v, key)
+            if found is not None:
+                return found
+    return None
+
+
+def entry_shape(e: dict) -> dict:
+    """The field names in a roster entry (and its nested player entry), to see what ESPN sends."""
+    pool = e.get("playerPoolEntry") or {}
+    return {"entry": sorted(e.keys()), "playerPoolEntry": sorted(pool.keys()),
+            "player": sorted((pool.get("player") or {}).keys())[:40]}
+
+
+def roster_acquisitions(api: Espn, year: int, weeks: list[int], shapes: list) -> dict[int, dict[int, list]]:
+    """Each team's roster for each week from ESPN's roster data, with how and when each player was acquired."""
     out = {}
     for sp in weeks:
         data = api.league(year, ["mRoster"], {"scoringPeriodId": sp}) or {}
-        out[sp] = {t["id"]: [{"id": e.get("playerId") or ((e.get("playerPoolEntry") or {}).get("player") or {}).get("id"),
-                              "acq": e.get("acquisitionType"), "acqDate": e.get("acquisitionDate")}
-                             for e in ((t.get("roster") or {}).get("entries") or [])]
-                   for t in data.get("teams", [])}
+        out[sp] = {}
+        for t in data.get("teams", []):
+            entries = (t.get("roster") or {}).get("entries") or []
+            if entries and not shapes:
+                shapes.append(entry_shape(entries[0]))
+            out[sp][t["id"]] = [{"id": e.get("playerId") or ((e.get("playerPoolEntry") or {}).get("player") or {}).get("id"),
+                                 "acq": find_key(e, "acquisitionType"), "acqDate": find_key(e, "acquisitionDate")}
+                                for e in entries]
     return out
 
 
@@ -592,12 +619,14 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
     # Trades. Weekly rosters record how each player joined his team, which gives every completed trade from
     # 2019 on. While this season's Recent Activity feed exists it's used instead (it also has trades too new
     # to show on a roster yet), and the two are compared as a check on the roster method.
-    roster_found, acq_seen = [], {}
+    roster_found, acq_seen, shapes = [], {}, []
     try:
-        if rosters:
-            acq = rosters
-            if not any(e.get("acq") == "TRADE" for by in rosters.values() for es in by.values() for e in es):
-                acq = roster_acquisitions(api, year, sorted(rosters))  # box scores lack acquisition details
+        # Seasons without lineup history (before 2019) may still have weekly rosters
+        weeks = sorted(rosters) if rosters else list(range(1, (reg_periods or last_sp) + 1))
+        if weeks:
+            acq = rosters or {}
+            if not any(e.get("acq") == "TRADE" for by in acq.values() for es in by.values() for e in es):
+                acq = roster_acquisitions(api, year, weeks, shapes)  # box scores lack acquisition details
             for by in acq.values():
                 for es in by.values():
                     for e in es:
@@ -617,6 +646,8 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
     feed_moves = {(m["pid"], m["to"]) for t in feed for m in t["moves"]}
     roster_moves = {(m["pid"], m["to"]) for t in roster_found for m in t["moves"]}
     diag["acquisitionTypes"] = acq_seen
+    if shapes and not any(k != "None" for k in acq_seen):
+        diag["rosterEntryShape"] = shapes[0]  # what ESPN sent, to find where acquisition details live
     diag.update({"source": "activity" if feed else "rosters", "rosterTrades": len(roster_found),
                  "feedMoves": len(feed_moves), "rosterMovesMatchingFeed": len(feed_moves & roster_moves) if feed else None})
     log(f"  {year}: trades {diag}")
