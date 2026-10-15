@@ -223,7 +223,7 @@ svg text { font-family: var(--font-body); }
 @media (max-width: 600px) { .side + .side { border-left: 0; border-top: 1px solid var(--line); } }
 .side-name { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .side-name b { font-weight: 600; }
-.side.won .side-name b::after { content: "Won trade"; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font: 600 .64rem/1.5 var(--font-body); letter-spacing: .05em; text-transform: uppercase; background: var(--good); color: var(--bg); }
+.side.won .side-name b::after { content: "Won"; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font: 600 .64rem/1.5 var(--font-body); letter-spacing: .05em; text-transform: uppercase; background: var(--good); color: var(--bg); }
 .got { display: grid; gap: 4px; }
 .got-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font-size: .86rem; }
 .got-row .pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -234,6 +234,21 @@ svg text { font-family: var(--font-body); }
 .side-totals .v { font: 600 .95rem/1.1 var(--font-data); font-variant-numeric: tabular-nums; }
 .side-totals .k { font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .empty { padding: 18px; color: var(--muted); }
+.grade { display: inline-grid; place-items: center; min-width: 2.3em; height: 1.9em; padding: 0 .35em; border-radius: 6px; font: 700 1.05rem/1 var(--font-display); letter-spacing: .02em; margin-right: 8px; }
+.grade.sm { min-width: 2.2em; height: 1.6em; font-size: .92rem; margin: 0; }
+.g-good { background: color-mix(in oklab, var(--good) 24%, var(--surface)); color: var(--ink); }
+.g-mid { background: var(--sunken); color: var(--ink); }
+.g-bad { background: color-mix(in oklab, var(--bad) 24%, var(--surface)); color: var(--ink); }
+.g-none { background: var(--sunken); color: var(--muted); font-size: .8rem; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 999px; font: 600 .62rem/1.6 var(--font-body); letter-spacing: .05em; text-transform: uppercase; vertical-align: 1px; }
+.t-good { background: color-mix(in oklab, var(--good) 22%, var(--surface)); color: var(--ink); }
+.t-bad { background: color-mix(in oklab, var(--bad) 22%, var(--surface)); color: var(--ink); }
+.t-minor { background: var(--sunken); color: var(--muted); }
+.side-totals.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 480px) { .side-totals.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.k-label { font: 600 .66rem/1.2 var(--font-body); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.side-name { align-items: center; justify-content: flex-start; flex-wrap: wrap; }
+.side-name .pill { margin-left: auto; }
 .scorecard tr.sel td { background: color-mix(in oklab, var(--accent) 12%, var(--surface)); }
 
 .legend { display: flex; align-items: center; gap: 10px; font-size: .8rem; color: var(--muted); flex-wrap: wrap; }
@@ -392,10 +407,12 @@ svg text { font-family: var(--font-body); }
     <div class="panel-head">
       <h2 id="tradesTitle">Trade analyzer</h2>
       <div class="trade-tools">
-        <label for="tradeMine"><input type="checkbox" id="tradeMine"> <span id="tradeMineLabel">Only this manager's trades</span></label>
+        <div class="field"><label for="tradeYear">Year</label><select id="tradeYear"></select></div>
+        <div class="field"><label for="tradeTeam">Team</label><select id="tradeTeam"></select></div>
+        <label for="tradeHideMinor"><input type="checkbox" id="tradeHideMinor"> Hide minor trades</label>
       </div>
     </div>
-    <p class="metric-desc">This season's completed trades, from your league's Recent Activity feed. Each player's positional rank by points scored before the trade vs. from the trade week on. A trade is won by the side whose new players scored more points in its starting lineup. Ranks and points use your league's scoring. ESPN doesn't keep trade history for past seasons.</p>
+    <p class="metric-desc">Every completed trade from 2019 on, read from ESPN's weekly rosters (ESPN has no lineup history before 2019). Each side gets a grade from <b>points per week vs. no trade</b>: every regular-season week after the deal, we take the lineup the team actually set, pull out the players it received, and fill those spots with the best of what it traded away or had on the bench. Games the trade won or lost move the grade up or down a step. Player ranks show where each player stood at the trade, for the rest of the season, and at season's end, so you can spot who bought low and who sold high.</p>
     <div class="card scroll-x" style="padding:0"><table class="scorecard" id="scorecard"></table></div>
     <div class="trade-list" id="tradeList"></div>
   </section>
@@ -494,6 +511,13 @@ svg text { font-family: var(--font-body); }
         after: +got.reduce((s, g) => s + g.ptsAfter, 0).toFixed(1),
         recBefore: [0, 0, 0], recAfter: [0, 0, 0] });
       const sa = side(a, [player(b), ...(rand() < .4 ? [player(b)] : [])]), sb = side(b, [player(a)]);
+      [[sa, sb], [sb, sa]].forEach(([s, o]) => {
+        s.gave = o.got.map(g => ({ ...g, to: o.m }));
+        const per = +(gauss() * 4).toFixed(2), weeks = 14 - wk + 1;
+        s.cf = { weeks, perWeek: per, net: +(per * weeks).toFixed(1), wonBy: per > 3 ? 1 : 0, lostBy: per < -3 ? 1 : 0 };
+        s.ppgBefore = +(110 + gauss() * 8).toFixed(1); s.ppgAfter = +(s.ppgBefore + per).toFixed(1);
+        s.got.forEach(g => g.starts = Math.round(rand() * (15 - wk)));
+      });
       [sa, sb].forEach(s => { s.recBefore = [Math.floor(rand() * wk), 0, 0]; s.recBefore[1] = wk - 1 - s.recBefore[0];
         s.recAfter = [Math.floor(rand() * (15 - wk)), 0, 0]; s.recAfter[1] = 14 - wk + 1 - s.recAfter[0]; });
       trades.push({ y, wk, sides: [sa, sb] });
@@ -524,8 +548,8 @@ svg text { font-family: var(--font-body); }
   };
 
   // ---------- State ----------
-  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeMine: false, view: "dashboard", showFormer: false, liveMgr: null };
-  const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeMine: state.tradeMine, view: state.view, showFormer: state.showFormer })); } catch (e) {} };
+  const state = { from: 0, to: 0, sel: 0, sortKey: "avgFinish", sortDir: 1, metric: "avgFinish", tradeYear: "all", tradeTeam: "all", tradeHideMinor: false, view: "dashboard", showFormer: false, liveMgr: null };
+  const save = () => { try { localStorage.setItem("lrb-view", JSON.stringify({ sel: state.sel, metric: state.metric, sortKey: state.sortKey, sortDir: state.sortDir, tradeYear: state.tradeYear, tradeTeam: state.tradeTeam, tradeHideMinor: state.tradeHideMinor, view: state.view, showFormer: state.showFormer })); } catch (e) {} };
   const inRange = y => y >= state.from && y <= state.to;
   const isNum = v => v !== null && v !== undefined && !Number.isNaN(v);
 
@@ -1010,71 +1034,104 @@ svg text { font-family: var(--font-body); }
   }
 
   // ---------- Trades ----------
-  const CLOSE_CALL = 10;  // started-point margin under which a trade is a wash
-  function tradeScore(t) {
-    const key = t.sides.every(s => isNum(s.started)) ? "started" : "after";
-    const ranked = t.sides.slice().sort((a, b) => b[key] - a[key]);
-    const margin = ranked[0][key] - ranked[1][key];
-    return { key, winner: margin >= CLOSE_CALL ? ranked[0].m : null, margin };
+  // Grade each side from points per week vs. no trade, nudged a step by games the trade won or lost
+  const GRADES = ["F", "D", "C", "B", "A", "A+"], GPA = { "A+": 4.3, A: 4, B: 3, C: 2, D: 1, F: 0 };
+  const RANK_SWING = 10;  // spots a player has to move for a bought-low / sold-high tag
+  function gradeOf(s, t) {
+    if (t && t.minor) return "N/A";  // nobody in the deal started more than 2 weeks for his new team
+    const cf = s.cf;
+    if (!cf || !cf.weeks) return null;
+    const p = cf.perWeek;
+    let g = p >= 8 ? 5 : p >= 4 ? 4 : p >= 1.5 ? 3 : p > -1.5 ? 2 : p > -4 ? 1 : 0;
+    const swing = (cf.wonBy || 0) - (cf.lostBy || 0);
+    if (swing >= 1) g++; else if (swing <= -1) g--;
+    return GRADES[Math.max(0, Math.min(5, g))];
   }
+  const gradeClass = g => !g || g === "N/A" ? "g-none" : g.startsWith("A") || g === "B" ? "g-good" : g === "C" ? "g-mid" : "g-bad";
+  function tradeVerdict(t) {
+    if (t.pending) return { winner: null, text: "Too early to judge · no games played since" };
+    if (t.minor) return { winner: null, text: "Minor trade · not graded" };
+    const graded = t.sides.filter(s => s.cf && s.cf.weeks);
+    if (graded.length < 2) return { winner: null, text: "Not enough games after the trade to judge" };
+    const best = graded.slice().sort((a, b) => b.cf.perWeek - a.cf.perWeek);
+    const gap = best[0].cf.perWeek - best[1].cf.perWeek;
+    return gap < 1.5 ? { winner: null, text: `Even · within ${gap.toFixed(1)} pts/week vs. no trade` }
+      : { winner: best[0].m, text: `<b>${esc((D.managers[best[0].m] || {}).name || "")}</b> won it by ${gap.toFixed(1)} pts/week` };
+  }
+  const signed = (v, d = 1) => isNum(v) ? (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d) : "—";
 
   function renderTrades(rows) {
-    const season = Math.max(...D.years);  // ESPN only keeps trade history for the current season
-    const trades = (D.trades || []).filter(t => t.y === season);
-    $("tradesTitle").textContent = `Trade analyzer · ${season}`;
+    const all = (D.trades || []).slice();
     const name = i => esc((D.managers[i] || {}).name || "Unknown");
-    const sel = rows.find(r => r.i === state.sel);
-    $("tradeMineLabel").textContent = `Only ${sel ? sel.name : "this manager"}'s trades`;
-    $("tradeMine").checked = state.tradeMine;
+    const years = [...new Set(all.map(t => t.y))].sort((a, b) => b - a);
+    const teams = [...new Set(all.flatMap(t => t.sides.map(s => s.m)))].sort((a, b) => ((D.managers[a] || {}).name || "").localeCompare((D.managers[b] || {}).name || ""));
+    if (state.tradeYear !== "all" && !years.includes(state.tradeYear)) state.tradeYear = "all";
+    if (state.tradeTeam !== "all" && !teams.includes(state.tradeTeam)) state.tradeTeam = "all";
+    $("tradeYear").innerHTML = `<option value="all">All years</option>` + years.map(y => `<option value="${y}">${y}</option>`).join("");
+    $("tradeTeam").innerHTML = `<option value="all">All teams</option>` + teams.map(m => `<option value="${m}">${name(m)}</option>`).join("");
+    $("tradeYear").value = String(state.tradeYear); $("tradeTeam").value = String(state.tradeTeam);
+    $("tradeHideMinor").checked = !!state.tradeHideMinor;
+    $("tradesTitle").textContent = "Trade analyzer";
 
-    // Scorecard: one row per manager who traded in this range
+    const inYear = all.filter(t => state.tradeYear === "all" || t.y === state.tradeYear);
+    // Scorecard counts every trade in the selected year(s), minor ones included
     const card = {};
-    trades.filter(t => !t.pending).forEach(t => {
-      const sc = tradeScore(t);
+    inYear.forEach(t => {
+      const v = tradeVerdict(t);
       t.sides.forEach(s => {
-        const c = card[s.m] || (card[s.m] = { n: 0, won: 0, lost: 0, even: 0, net: 0 });
-        const best = Math.max(...t.sides.filter(o => o !== s).map(o => o[sc.key] || 0));
-        c.n++; c.net += (s[sc.key] || 0) - best;
-        if (sc.winner === null) c.even++; else if (sc.winner === s.m) c.won++; else c.lost++;
+        const c = card[s.m] || (card[s.m] = { n: 0, won: 0, lost: 0, even: 0, net: 0, swing: 0, gpa: [], minor: 0 });
+        c.n++; if (t.minor) c.minor++;
+        const graded = !t.pending && !t.minor;  // minor trades count as trades but don't move grades or totals
+        const g = gradeOf(s, t); if (graded && g && GPA[g] !== undefined) c.gpa.push(GPA[g]);
+        if (s.cf && s.cf.weeks && graded) { c.net += s.cf.net; c.swing += (s.cf.wonBy || 0) - (s.cf.lostBy || 0); }
+        if (graded) { if (v.winner === null) c.even++; else if (v.winner === s.m) c.won++; else c.lost++; }
       });
     });
+    const avgGrade = c => { if (!c.gpa.length) return "—"; const a = c.gpa.reduce((x, y) => x + y, 0) / c.gpa.length; return GRADES.slice().reverse().find(g => a >= GPA[g] - .5) || "F"; };
     const cardRows = Object.entries(card).sort((a, b) => b[1].net - a[1].net);
-    $("scorecard").innerHTML = cardRows.length ? `<thead><tr><th>Manager</th><th>Trades</th><th>Won</th><th>Lost</th><th>Wash</th><th title="Started points gained minus started points given up">Net started pts</th></tr></thead><tbody>`
-      + cardRows.map(([m, c]) => `<tr class="${+m === state.sel ? "sel" : ""}"><td>${name(+m)}</td><td>${c.n}</td><td>${c.won}</td><td>${c.lost}</td><td>${c.even}</td><td class="${c.net >= 0 ? "pos" : "neg"}">${c.net >= 0 ? "+" : "−"}${Math.abs(c.net).toFixed(1)}</td></tr>`).join("")
-      + `</tbody>` : `<tbody><tr><td class="empty">No trades yet this season.</td></tr></tbody>`;
+    $("scorecard").innerHTML = cardRows.length
+      ? `<thead><tr><th>Manager</th><th>Trades</th><th>Avg grade</th><th title="Minor trades excluded">Won</th><th title="Minor trades excluded">Lost</th><th title="Minor trades excluded">Even</th><th title="Lineup points gained vs. not trading, all weeks after each trade">Net pts vs. no trade</th><th title="Games won because of trades minus games lost because of them">Games swung</th></tr></thead><tbody>`
+        + cardRows.map(([m, c]) => { const ag = avgGrade(c); return `<tr class="${+m === state.sel ? "sel" : ""}"><td>${name(+m)}</td><td>${c.n}${c.minor ? ` <span class="muted">(${c.minor} minor)</span>` : ""}</td>`
+          + `<td><span class="grade sm ${gradeClass(ag === "—" ? null : ag)}">${ag}</span></td><td>${c.won}</td><td>${c.lost}</td><td>${c.even}</td>`
+          + `<td class="${c.net >= 0 ? "pos" : "neg"}">${signed(c.net)}</td><td class="${c.swing > 0 ? "pos" : c.swing < 0 ? "neg" : ""}">${signed(c.swing, 0)}</td></tr>`; }).join("") + `</tbody>`
+      : `<tbody><tr><td class="empty">No trades found.</td></tr></tbody>`;
 
-    const shown = trades.filter(t => !state.tradeMine || t.sides.some(s => s.m === state.sel))
+    const shown = inYear.filter(t => (state.tradeTeam === "all" || t.sides.some(s => s.m === state.tradeTeam)) && !(state.tradeHideMinor && t.minor))
       .sort((a, b) => b.y - a.y || b.wk - a.wk);
-    const rankStr = (pos, n) => isNum(n) ? `${pos}${n}` : "—";
-    const recFmt = r => r ? recStr(r[0], r[1], r[2]) : "—";
+    const rk = (pos, n) => isNum(n) ? `${pos}${n}` : "—";
+    const tag = (before, after, bought) => {
+      if (!isNum(before) || !isNum(after)) return "";
+      const moved = before - after;  // positive = ranked higher afterward
+      if (Math.abs(moved) < RANK_SWING) return "";
+      const good = bought ? moved > 0 : moved < 0;
+      const label = bought ? (moved > 0 ? "Bought low" : "Bought high") : (moved < 0 ? "Sold high" : "Sold low");
+      return ` <span class="tag ${good ? "t-good" : "t-bad"}">${label}</span>`;
+    };
+    const playerRow = (g, bought, side) => `<div class="got-row"><span class="pname">${esc(g.name)} <span class="muted">${esc(g.pos)}</span>${tag(g.rankBefore, g.rankAfter, bought)}</span>`
+      + `<span class="rank" data-tip="${esc(`Rank by points before the trade → rest of the season · final season rank<br>${g.ptsBefore} pts before · ${g.ptsAfter} pts after`)}">${rk(g.pos, g.rankBefore)} → ${rk(g.pos, g.rankAfter)} · ${rk(g.pos, g.rankEnd)}</span>`
+      + `<span class="sub">${g.ptsAfter} pts after${isNum(g.starts) ? ` · started ${g.starts} wk${g.starts === 1 ? "" : "s"} (${(g.started || 0).toFixed(1)} pts) for ${bought ? name(side.m) : name(g.to)}` : ""}${!bought && isNum(g.to) ? "" : isNum(g.from) ? ` · from ${name(g.from)}` : ""}</span></div>`;
     $("tradeList").innerHTML = shown.length ? shown.map(t => {
-      const sc = tradeScore(t), basis = sc.key === "started" ? "started pts" : "pts after trade";
-      const verdict = t.pending ? `<span class="verdict">Too early to judge · no games played since</span>`
-        : sc.winner === null ? `<span class="verdict">Wash · within ${CLOSE_CALL} ${basis}</span>`
-        : `<span class="verdict"><b>${name(sc.winner)}</b> won by ${sc.margin.toFixed(1)} ${basis}</span>`;
+      const v = tradeVerdict(t);
       const sides = t.sides.map(s => {
-        const got = s.got.length ? s.got.map(g => {
-          const delta = isNum(g.rankBefore) && isNum(g.rankAfter) ? g.rankBefore - g.rankAfter : null;
-          const cls = delta === null ? "" : delta > 0 ? "pos" : delta < 0 ? "neg" : "";
-          return `<div class="got-row"><span class="pname">${esc(g.name)} <span class="muted">${esc(g.pos)}</span></span>`
-            + `<span class="rank ${cls}" data-tip="${esc(`Rank by points before the trade → from the trade week on<br>${g.ptsBefore} pts before · ${g.ptsAfter} pts after`)}">${rankStr(g.pos, g.rankBefore)} → ${t.pending ? "—" : rankStr(g.pos, g.rankAfter)}</span>`
-            + `<span class="sub">${g.ptsAfter} pts after${isNum(g.started) ? ` · ${g.started} started for ${name(s.m)}` : ""}${isNum(g.from) ? ` · from ${name(g.from)}` : ""}</span></div>`;
-        }).join("") : `<span class="muted">Nothing received</span>`;
-        return `<div class="side ${!t.pending && sc.winner === s.m ? "won" : ""}">
-          <div class="side-name"><b>${name(s.m)}</b><span class="muted" style="font-size:.78rem">received</span></div>
-          <div class="got">${got}</div>
-          <div class="side-totals">
+        const g = t.pending ? null : gradeOf(s, t), cf = s.cf || {}, season = ((D.seasons[t.y] || [])[s.m]);
+        const label = season ? finishLabel(t.y, season) : null;
+        return `<div class="side ${!t.pending && v.winner === s.m ? "won" : ""}">
+          <div class="side-name"><span class="grade ${gradeClass(g)}" title="Trade grade">${g || "—"}</span><b>${name(s.m)}</b>${label ? `<span class="pill ${LABEL_PILL[label]}">${label}</span>` : ""}</div>
+          <div class="side-totals four">
+            <div data-tip="Points per week vs. the same lineups without the trade, over ${cf.weeks || 0} regular-season weeks"><span class="v ${cf.perWeek > 0 ? "pos" : cf.perWeek < 0 ? "neg" : ""}">${signed(cf.perWeek)}</span><span class="k">Pts/wk vs. no trade</span></div>
+            <div data-tip="Games the trade turned into wins (+) or losses (−)"><span class="v">${isNum(cf.wonBy) ? `+${cf.wonBy} / −${cf.lostBy}` : "—"}</span><span class="k">Games swung</span></div>
+            <div data-tip="Team points per game before → after the trade, regular season"><span class="v">${isNum(s.ppgBefore) ? s.ppgBefore.toFixed(1) : "—"} → ${isNum(s.ppgAfter) ? s.ppgAfter.toFixed(1) : "—"}</span><span class="k">Team PPG</span></div>
             <div><span class="v">${isNum(s.started) ? s.started.toFixed(1) : "—"}</span><span class="k">Started pts</span></div>
-            <div><span class="v">${s.after.toFixed(1)}</span><span class="k">Pts after</span></div>
-            <div data-tip="Team's regular-season record before the trade → after it"><span class="v">${recFmt(s.recBefore)} → ${recFmt(s.recAfter)}</span><span class="k">Team record</span></div>
           </div>
+          <div class="got"><span class="k-label">Received</span>${s.got.length ? s.got.map(gp => playerRow(gp, true, s)).join("") : `<span class="muted">Nothing</span>`}</div>
+          <div class="got"><span class="k-label">Gave up</span>${(s.gave || []).length ? s.gave.map(gp => playerRow(gp, false, s)).join("") : `<span class="muted">Nothing</span>`}</div>
         </div>`;
       }).join("");
       return `<article class="trade ${t.sides.some(s => s.m === state.sel) ? "sel-trade" : ""}">
-        <div class="trade-head"><span class="when">${t.y} · Week ${t.wk}</span>${verdict}</div>
+        <div class="trade-head"><span class="when">${t.y} · Week ${t.wk}${t.minor ? ` <span class="tag t-minor" title="No player in this trade started more than 2 weeks for his new team">Minor</span>` : ""}</span><span class="verdict">${v.text}</span></div>
         <div class="trade-sides">${sides}</div>
       </article>`;
-    }).join("") : `<div class="card empty">${trades.length ? "No trades for this manager this season." : "No trades yet this season."}</div>`;
+    }).join("") : `<div class="card empty">No trades match these filters.</div>`;
   }
 
   // ---------- Records ----------
@@ -1198,7 +1255,9 @@ svg text { font-family: var(--font-body); }
     $("fromYear").onchange = e => { state.from = +e.target.value; if (state.from > state.to) { state.to = state.from; $("toYear").value = state.to; } render(); };
     $("toYear").onchange = e => { state.to = +e.target.value; if (state.to < state.from) { state.from = state.to; $("fromYear").value = state.from; } render(); };
     $("mgrSelect").onchange = e => select(+e.target.value);
-    $("tradeMine").onchange = e => { state.tradeMine = e.target.checked; save(); render(); };
+    $("tradeYear").onchange = e => { state.tradeYear = e.target.value === "all" ? "all" : +e.target.value; save(); render(); };
+    $("tradeTeam").onchange = e => { state.tradeTeam = e.target.value === "all" ? "all" : +e.target.value; save(); render(); };
+    $("tradeHideMinor").onchange = e => { state.tradeHideMinor = e.target.checked; save(); render(); };
     document.querySelectorAll(".views button").forEach(b => b.onclick = () => showView(b.dataset.view));
     const fromLink = (location.hash || "").slice(1);
     renderData(); renderMethod(); render();
