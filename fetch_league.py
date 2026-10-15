@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import time
+import traceback
 from collections import defaultdict
 from pathlib import Path
 
@@ -574,10 +575,15 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                 lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
                 lines[k]["posPts"] = lm["posPts"].get(tid)
 
+    trade_errors = []
     # Trades. Weekly rosters record how each player joined his team, which gives every completed trade from
     # 2019 on. While this season's Recent Activity feed exists it's used instead (it also has trades too new
     # to show on a roster yet), and the two are compared as a check on the roster method.
-    roster_found = roster_trades(rosters) if rosters else []
+    try:
+        roster_found = roster_trades(rosters) if rosters else []
+    except Exception:  # noqa: BLE001
+        roster_found = []
+        trade_errors.append(traceback.format_exc(limit=4)[-1500:])
     feed, diag = [], {}
     if year >= 2018:
         try:
@@ -631,7 +637,14 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                       "pts": round(s["total"], 1) if s.get("total") is not None else None,
                       "keeper": bool(p.get("keeper")), "live": not complete})
 
-    trade_report = analyze_trades(trades, stats, key_of, rosters, scores, reg_periods, last_sp) if trades and stats else []
+    try:
+        trade_report = analyze_trades(trades, stats, key_of, rosters, scores, reg_periods, last_sp) if trades and stats else []
+    except Exception:  # noqa: BLE001  (a bug here shouldn't sink the whole update; the error is saved for review)
+        trade_report = []
+        trade_errors.append(traceback.format_exc(limit=4)[-1500:])
+    if trade_errors:
+        log(f"  {year}: trade analysis failed:\n" + "\n".join(trade_errors))
+        diag["errors"] = trade_errors
 
     return {"v": CACHE_VERSION, "year": year, "size": size, "complete": complete, "boxScores": did_box,
             "playoffTeams": playoff_teams, "name": (data.get("settings") or {}).get("name"),
@@ -805,7 +818,7 @@ def main() -> None:
         if not r:
             continue
         r["leagueId"] = season_api.league_id
-        if r["complete"]:
+        if r["complete"] and not (r.get("tradeCheck") or {}).get("errors"):  # retry failed seasons next run
             path.write_text(json.dumps(r, separators=(",", ":")))
         results.append(r)
 
