@@ -53,7 +53,7 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
 TRADED_MESSAGE = 244        # message type for a completed trade in the league activity feed
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 21            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 23            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits", "posPts"]
@@ -307,7 +307,8 @@ def inferred_trades(rosters: dict[int, dict[int, list]], adds: set) -> list[dict
 
 
 def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int, str],
-                   rosters: dict | None, scores: dict, weekly: dict, reg_periods: int, last_sp: int) -> list[dict]:
+                   rosters: dict | None, scores: dict, weekly: dict, reg_periods: int, last_sp: int,
+                   playoff_weeks: set = frozenset()) -> list[dict]:
     """For each side of each trade: who came and went, how those players ranked at the trade, for the rest of
     the season and at season's end, what the team scored before and after, and what it would have scored
     without the trade (its real lineup each week, with the incoming players swapped back out)."""
@@ -331,7 +332,8 @@ def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int,
                 "rankBefore": before.get(pid), "rankAfter": after.get(pid) if pid in stats else None,
                 "rankEnd": season_rank.get(pid), "ptsBefore": round(window_points(pid, 1, wk - 1), 2),
                 "ptsAfter": round(window_points(pid, wk, last_sp), 2),
-                "started": None, "starts": None, "ptsWith": None, "weeksWith": None, "flippedTo": None, "flipWeek": None}
+                "started": None, "starts": None, "ptsWith": None, "weeksWith": None, "flippedTo": None, "flipWeek": None,
+                "rankWith": None}
         weeks_pts = stats[pid]["weeks"] if pid in stats else {}
         played = lambda pts: round(sum(pts) / len(pts), 2) if pts else None  # noqa: E731  (weeks he scored = games)
         info["ppgBefore"] = played([v for w, v in weeks_pts.items() if w < wk and v])
@@ -343,6 +345,8 @@ def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int,
             info.update({"started": round(sum(started), 2), "starts": len(started), "weeksWith": len(on),
                          "ptsWith": round(sum(stats[pid]["weeks"].get(sp, 0.0) for sp in on), 2) if pid in stats else None})
             info["ppgAfter"] = played([weeks_pts.get(sp, 0.0) for sp in on if weeks_pts.get(sp)])  # only while on this team
+            if on and pid in stats:  # his positional rank over just the weeks he was on this team
+                info["rankWith"] = ranks_for(on[0], on[-1]).get(pid)
             if on:
                 later = [(sp, t2) for sp, by_team in sorted(rosters.items()) if sp > on[-1]
                          for t2, entries in by_team.items() if t2 != team and any(e["id"] == pid for e in entries)]
@@ -364,11 +368,18 @@ def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int,
         net, n, won, lost, xw = 0.0, 0, 0, 0, 0.0
         # Players this team was starting the week before the trade would have kept starting without it
         regulars = {e["id"] for e in rosters.get(wk - 1, {}).get(tid, []) if e["slot"] not in NON_STARTER_SLOTS}
-        for sp in range(wk, reg_last + 1):
-            if (sp, tid) not in scores or tid not in rosters.get(sp, {}):
+        for sp in range(wk, last_sp + 1):
+            entries = rosters.get(sp, {}).get(tid)
+            if entries is None:
                 continue
-            mine, theirs = scores[(sp, tid)]
-            entries = rosters[sp][tid]
+            if sp <= reg_last:
+                if (sp, tid) not in scores:
+                    continue
+                mine, theirs = scores[(sp, tid)]
+            elif (sp, tid) in playoff_weeks:  # championship bracket: points count, there's no all-play
+                mine, theirs = sum(e["actual"] for e in entries if e["slot"] not in NON_STARTER_SLOTS), None
+            else:
+                continue
             removed = [e for e in entries if e["id"] in got_ids and e["slot"] not in NON_STARTER_SLOTS]
             traded_away = [{"pid": p, "pts": stats[p]["weeks"].get(sp, 0.0) if p in stats else 0.0,
                             "slots": POS_SLOTS.get(POSITION_NAMES.get((stats.get(p) or {}).get("pos")), set())} for p in gave]
@@ -399,6 +410,8 @@ def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int,
                     kept.remove(low)
             n += 1
             net += mine - cf
+            if theirs is None:
+                continue
             others = [p for t2, p in weekly.get(sp, {}).items() if t2 != tid]
             if others:  # all-play: share of the league each lineup would have beaten that week
                 beat = lambda x: (sum(o < x for o in others) + 0.5 * sum(o == x for o in others)) / len(others)  # noqa: E731
@@ -523,7 +536,7 @@ def lineup_metrics(api: Espn, year: int, data: dict, counted: set, complete: boo
                     if after and (after["slot"] == IR_SLOT
                                   or (not after["played"] and byes.get(after["pro_team"]) != sp + 1)):
                         inj[tid] += 1
-    return {"ssC": ss_c, "ssT": ss_t, "inj": inj, "rosters": rosters,
+    return {"ssC": ss_c, "ssT": ss_t, "inj": inj, "rosters": rosters, "counted": counted_sp,
             "posPts": {tid: {p: round(v, 2) for p, v in by.items()} for tid, by in pos_pts.items()}}
 
 
@@ -612,7 +625,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
     last_sp = (status.get("finalScoringPeriod") if complete else (status.get("latestScoringPeriod") or 1) - 1) or 17
 
     # Weekly lineups: start/sit and mid-game injuries (also the source for trades)
-    did_box, rosters = False, None
+    did_box, rosters, counted_sp = False, None, set()
     if box_scores and year >= BOX_SCORES_FROM:
         try:
             lm = lineup_metrics(api, year, data, counted, complete)
@@ -620,7 +633,7 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             log(f"  {year}: couldn't load box scores ({e}); skipping start/sit and injuries")
             lm = None
         if lm:
-            did_box, rosters = True, lm["rosters"]
+            did_box, rosters, counted_sp = True, lm["rosters"], lm["counted"]
             for tid, k in key_of.items():
                 lines[k]["ssC"], lines[k]["ssT"], lines[k]["inj"] = lm["ssC"][tid], lm["ssT"][tid], lm["inj"][tid]
                 lines[k]["posPts"] = lm["posPts"].get(tid)
@@ -651,11 +664,10 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
             diag.update({"source": "rosters", "inferredTrades": len(guess), "teamsWithPickups": coverage,
                          "pickups": len(hist["adds"]), "ownTrades": len(own), "ownFound": matched,
                          "inferredForOwnTeam": len(guess_mine), "trusted": trusted, "transactionKinds": hist["kinds"]})
-            if not trusted:
-                # Keep every season: this account's own trades come straight from ESPN's records (exact);
-                # everyone else's inferred trades stay, marked unverified
-                guess = [{**t, "unverified": True} for t in guess if not (mine & ({m["to"] for m in t["moves"]} | {m["from"] for m in t["moves"]}))]
-                guess += [{"sp": tr["sp"], "date": tr["date"], "moves": [{"pid": p, "from": fr, "to": to} for p, fr, to in tr["moves"]]} for tr in own]
+            # This account's own trades come straight from ESPN's records (exact). Everyone else's come from
+            # roster moves, the only source ESPN allows for other teams' trades (accurate, but can miss some).
+            guess = [t for t in guess if not (mine & ({m["to"] for m in t["moves"]} | {m["from"] for m in t["moves"]}))]
+            guess += [{"sp": tr["sp"], "date": tr["date"], "moves": [{"pid": p, "from": fr, "to": to} for p, fr, to in tr["moves"]]} for tr in own]
         except Exception:  # noqa: BLE001
             guess = []
             trade_errors.append(traceback.format_exc(limit=4)[-1500:])
@@ -704,7 +716,8 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                       "keeper": bool(p.get("keeper")), "live": not complete})
 
     try:
-        trade_report = analyze_trades(trades, stats, key_of, rosters, week_scores, weekly, reg_periods, last_sp) if trades and stats else []
+        trade_report = analyze_trades(trades, stats, key_of, rosters, week_scores, weekly, reg_periods, last_sp,
+                                          {(sp, t) for sp, t in counted_sp if sp > reg_periods}) if trades and stats else []
     except Exception:  # noqa: BLE001  (a bug here shouldn't sink the whole update; the error is saved for review)
         trade_report = []
         trade_errors.append(traceback.format_exc(limit=4)[-1500:])
@@ -760,7 +773,8 @@ def assemble(league_id: int, results: list[dict]) -> dict:
                    "sa": g["sa"], "sb": g["sb"], "po": g["po"]} for g in r["games"]]
         draft += [{**d, "y": r["year"], "m": ix(d["m"])} for d in r.get("draft", [])]
         for t in r.get("trades", []):
-            trades.append({"y": r["year"], "wk": t["wk"], "date": t["date"], "sides": [
+            trades.append({"y": r["year"], "wk": t["wk"], "date": t["date"], "minor": t.get("minor", False),
+                           "pending": t.get("pending", False), "unverified": t.get("unverified", False), "sides": [
                 {**s, "m": ix(s["m"]), "got": [{**g, "from": ix(g["from"]) if g["from"] else None,
                           "flippedTo": ix(g["flippedTo"]) if g.get("flippedTo") else None} for g in s["got"]],
                  "gave": [{**g, "to": ix(g["to"]) if g.get("to") else None,
