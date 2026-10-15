@@ -53,7 +53,7 @@ INJURY_MIN_PROJECTION = 5.0 # ...was projected for at least this many points...
 TRADED_MESSAGE = 244        # message type for a completed trade in the league activity feed
 SKIPPED_PLAYOFF_TIERS = ("LOSER", "CONSOLATION")  # consolation games don't count toward records
 DRAFT_SKIP_POSITIONS = {5, 16}  # K and D/ST: nearly all go late and finish top 20, so they'd swamp "late gems"
-CACHE_VERSION = 16            # bump when season processing changes so cached seasons get rebuilt
+CACHE_VERSION = 18            # bump when season processing changes so cached seasons get rebuilt
 
 LINE_FIELDS = ["w", "l", "t", "pf", "xw", "g", "seed", "finish", "playoffs", "last",
                "champ", "inj", "ssC", "ssT", "r1Bust", "lateHits", "posPts"]
@@ -259,80 +259,51 @@ POS_SLOTS = {"QB": {0, 7}, "RB": {2, 3, 23, 7}, "WR": {3, 4, 5, 23, 7}, "TE": {5
 MINOR_TRADE_STARTS = 2  # a trade is minor if no player in it started more than this many weeks for his new team
 
 
-def find_key(obj, key):
-    """First value stored under `key` anywhere inside nested dicts and lists."""
-    if isinstance(obj, dict):
-        if obj.get(key) is not None:
-            return obj[key]
-        for v in obj.values():
-            found = find_key(v, key)
-            if found is not None:
-                return found
-    elif isinstance(obj, list):
-        for v in obj:
-            found = find_key(v, key)
-            if found is not None:
-                return found
-    return None
-
-
-def entry_shape(e: dict) -> dict:
-    """The field names in a roster entry (and its nested player entry), to see what ESPN sends."""
-    pool = e.get("playerPoolEntry") or {}
-    return {"entry": sorted(e.keys()), "playerPoolEntry": sorted(pool.keys()),
-            "player": sorted((pool.get("player") or {}).keys())[:40]}
-
-
-def roster_acquisitions(api: Espn, year: int, weeks: list[int], shapes: list) -> dict[int, dict[int, list]]:
-    """Each team's roster for each week from ESPN's roster data, with how and when each player was acquired."""
-    out = {}
+def transaction_history(api: Espn, year: int, weeks: list[int]) -> dict:
+    """ESPN's weekly transaction records: every executed pickup (player, team, week), plus the executed
+    trades this account can see (its own), which serve as a known answer to check inferred trades against."""
+    adds, own_trades, teams_with_adds, kinds = set(), [], set(), defaultdict(int)
     for sp in weeks:
-        data = api.league(year, ["mRoster"], {"scoringPeriodId": sp}) or {}
-        out[sp] = {}
-        for t in data.get("teams", []):
-            entries = (t.get("roster") or {}).get("entries") or []
-            if entries and not shapes:
-                shapes.append(entry_shape(entries[0]))
-            out[sp][t["id"]] = [{"id": e.get("playerId") or ((e.get("playerPoolEntry") or {}).get("player") or {}).get("id"),
-                                 "acq": find_key(e, "acquisitionType"), "acqDate": find_key(e, "acquisitionDate")}
-                                for e in entries]
-    return out
+        try:
+            resp = api.league(year, ["mTransactions2"], {"scoringPeriodId": sp}) or {}
+        except Exception as e:  # noqa: BLE001
+            log(f"  {year} week {sp}: couldn't load transactions ({e})")
+            continue
+        for t in resp.get("transactions", []):
+            if t.get("status") != "EXECUTED":
+                continue
+            kinds[str(t.get("type"))] += 1
+            items = t.get("items") or []
+            for i in items:
+                if i.get("type") == "ADD" and i.get("playerId"):
+                    adds.add((i["playerId"], i.get("toTeamId"), t.get("scoringPeriodId") or sp))
+                    teams_with_adds.add(i.get("toTeamId"))
+            moves = {(i["playerId"], i.get("fromTeamId"), i.get("toTeamId")) for i in items if i.get("type") == "TRADE" and i.get("playerId")}
+            if moves and moves not in own_trades:
+                own_trades.append(moves)
+    return {"adds": adds, "ownTrades": own_trades, "teamsWithAdds": teams_with_adds, "kinds": dict(kinds)}
 
 
-def roster_trades(rosters: dict[int, dict[int, list]]) -> list[dict]:
-    """Completed trades read from weekly rosters. ESPN marks each rostered player with how he joined the team
-    (draft, add, or trade) and when. Players acquired by trade at the same moment were in the same trade;
-    the team they came from is the roster they were on the week before."""
+def inferred_trades(rosters: dict[int, dict[int, list]], adds: set) -> list[dict]:
+    """Trades read from week-to-week roster changes: players who went straight from one team's roster to
+    another's, in both directions between the same two teams, leaving out any move ESPN records as a pickup."""
+    out = []
     weeks = sorted(rosters)
-    moves = {}
-    for k, wk in enumerate(weeks):
-        before = {}
-        if k and weeks[k - 1] == wk - 1:
-            before = {e["id"]: tid for tid, entries in rosters[weeks[k - 1]].items() for e in entries}
-        for tid, entries in rosters[wk].items():
+    for prev, cur in zip(weeks, weeks[1:]):
+        if cur != prev + 1:
+            continue
+        owner_before = {e["id"]: tid for tid, entries in rosters[prev].items() for e in entries}
+        by_pair = defaultdict(list)
+        for tid, entries in rosters[cur].items():
             for e in entries:
-                if e.get("acq") != "TRADE" or not e.get("acqDate"):
+                was = owner_before.get(e["id"])
+                if was is None or was == tid or any((e["id"], tid, w) in adds for w in (prev, cur)):
                     continue
-                key = (e["id"], tid, e["acqDate"])
-                if key not in moves:  # first week he shows up on the new roster
-                    moves[key] = {"pid": e["id"], "to": tid, "from": before.get(e["id"]), "date": e["acqDate"], "wk": wk}
-    groups = []
-    for m in sorted(moves.values(), key=lambda m: m["date"]):
-        if groups and m["date"] - groups[-1]["date"] <= 120_000:  # same trade: acquired within two minutes
-            groups[-1]["moves"].append(m)
-        else:
-            groups.append({"date": m["date"], "moves": [m]})
-    trades = []
-    for g in groups:
-        teams = {m["to"] for m in g["moves"]} | {m["from"] for m in g["moves"] if m["from"] is not None}
-        for m in g["moves"]:  # traded before we had a previous week to look at: two-team trade, so it's the other team
-            if m["from"] in (None, m["to"]) and len(teams) == 2:
-                m["from"] = next(t for t in teams if t != m["to"])
-        g["moves"] = [m for m in g["moves"] if m["from"] is not None and m["from"] != m["to"]]
-        if len({m["to"] for m in g["moves"]} | {m["from"] for m in g["moves"]}) >= 2:
-            trades.append({"sp": min(m["wk"] for m in g["moves"]), "date": g["date"],
-                           "moves": [{"pid": m["pid"], "from": m["from"], "to": m["to"]} for m in g["moves"]]})
-    return trades
+                by_pair[frozenset((was, tid))].append({"pid": e["id"], "from": was, "to": tid})
+        for moves in by_pair.values():
+            if len({m["to"] for m in moves}) == 2:  # players went both ways
+                out.append({"sp": cur, "date": None, "moves": moves})
+    return out
 
 
 def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int, str],
@@ -371,8 +342,10 @@ def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int,
         return round(sum(vals) / len(vals), 2) if vals else None
 
     def without_trade(tid, wk, got_ids, gave):
-        """Each regular-season week after the trade: the team's real starters, minus incoming players,
-        with the open spots filled by the best eligible player it gave away or had on its bench."""
+        """Each regular-season week after the trade: the team's real starters, minus incoming players, with each
+        open spot filled by who would realistically have started there: a player it traded away if he fits the
+        spot, otherwise its bench player with the highest projection that week (not the best actual score,
+        which would grade the team on hindsight)."""
         if not rosters:
             return None
         net, n, won, lost = 0.0, 0, 0, 0
@@ -382,16 +355,23 @@ def analyze_trades(trades: list[dict], stats: dict[int, dict], key_of: dict[int,
             mine, theirs = scores[(sp, tid)]
             entries = rosters[sp][tid]
             removed = [e for e in entries if e["id"] in got_ids and e["slot"] not in NON_STARTER_SLOTS]
-            pool = [{"pts": e["actual"], "slots": e["eligible"]} for e in entries if e["slot"] == BENCH_SLOT and e["id"] not in got_ids]
-            pool += [{"pts": stats[p]["weeks"].get(sp, 0.0) if p in stats else 0.0,
-                      "slots": POS_SLOTS.get(POSITION_NAMES.get((stats.get(p) or {}).get("pos")), set())} for p in gave]
+            traded_away = [{"pts": stats[p]["weeks"].get(sp, 0.0) if p in stats else 0.0,
+                            "slots": POS_SLOTS.get(POSITION_NAMES.get((stats.get(p) or {}).get("pos")), set())} for p in gave]
+            bench = [{"pts": e["actual"], "proj": e["proj"], "slots": e["eligible"]}
+                     for e in entries if e["slot"] == BENCH_SLOT and e["id"] not in got_ids]
             cf = mine - sum(e["actual"] for e in removed)
             for e in removed:
-                options = [c for c in pool if e["slot"] in c["slots"]]
-                if options:
-                    best = max(options, key=lambda c: c["pts"])
-                    cf += best["pts"]
-                    pool.remove(best)
+                fits = [c for c in traded_away if e["slot"] in c["slots"]]
+                if fits:
+                    pick = max(fits, key=lambda c: c["pts"])
+                    traded_away.remove(pick)
+                else:
+                    fits = [c for c in bench if e["slot"] in c["slots"]]
+                    if not fits:
+                        continue
+                    pick = max(fits, key=lambda c: c["proj"])
+                    bench.remove(pick)
+                cf += pick["pts"]
             n += 1
             net += mine - cf
             if mine > theirs and cf <= theirs:
@@ -616,25 +596,9 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
                 lines[k]["posPts"] = lm["posPts"].get(tid)
 
     trade_errors = []
-    # Trades. Weekly rosters record how each player joined his team, which gives every completed trade from
-    # 2019 on. While this season's Recent Activity feed exists it's used instead (it also has trades too new
-    # to show on a roster yet), and the two are compared as a check on the roster method.
-    roster_found, acq_seen, shapes = [], {}, []
-    try:
-        # Seasons without lineup history (before 2019) may still have weekly rosters
-        weeks = sorted(rosters) if rosters else list(range(1, (reg_periods or last_sp) + 1))
-        if weeks:
-            acq = rosters or {}
-            if not any(e.get("acq") == "TRADE" for by in acq.values() for es in by.values() for e in es):
-                acq = roster_acquisitions(api, year, weeks, shapes)  # box scores lack acquisition details
-            for by in acq.values():
-                for es in by.values():
-                    for e in es:
-                        acq_seen[str(e.get("acq"))] = acq_seen.get(str(e.get("acq")), 0) + 1
-            roster_found = roster_trades(acq)
-    except Exception:  # noqa: BLE001
-        roster_found = []
-        trade_errors.append(traceback.format_exc(limit=4)[-1500:])
+    # Trades. This season: the league's Recent Activity feed (the real list). Past seasons: week-to-week roster
+    # changes between two teams, minus anything ESPN records as a pickup. That's only trusted when ESPN's
+    # records cover every team's pickups and the method finds exactly this account's own known trades.
     feed, diag = [], {}
     if year >= 2018:
         try:
@@ -642,14 +606,29 @@ def process_season(api: Espn, year: int, box_scores: bool) -> dict | None:
         except Exception as e:  # noqa: BLE001
             log(f"  {year}: couldn't load the activity feed ({e})")
             diag = {"error": str(e)[:200]}
-    trades = feed or roster_found
-    feed_moves = {(m["pid"], m["to"]) for t in feed for m in t["moves"]}
-    roster_moves = {(m["pid"], m["to"]) for t in roster_found for m in t["moves"]}
-    diag["acquisitionTypes"] = acq_seen
-    if shapes and not any(k != "None" for k in acq_seen):
-        diag["rosterEntryShape"] = shapes[0]  # what ESPN sent, to find where acquisition details live
-    diag.update({"source": "activity" if feed else "rosters", "rosterTrades": len(roster_found),
-                 "feedMoves": len(feed_moves), "rosterMovesMatchingFeed": len(feed_moves & roster_moves) if feed else None})
+    guess = []
+    if not feed and rosters:
+        try:
+            hist = transaction_history(api, year, sorted(rosters))
+            guess = inferred_trades(rosters, hist["adds"])
+            own = hist["ownTrades"]
+            mine = set.intersection(*[{f for _, f, _ in tr} | {to for _, _, to in tr} for tr in own]) if own else set()
+            guess_moves = {(m["pid"], m["to"]) for t in guess for m in t["moves"]}
+            guess_mine = [t for t in guess if mine & ({m["to"] for m in t["moves"]} | {m["from"] for m in t["moves"]})]
+            matched = sum(1 for tr in own if all((p, to) in guess_moves for p, _, to in tr))
+            coverage = len(hist["teamsWithAdds"] & set(key_of))
+            trusted = coverage >= len(key_of) - 1 and matched == len(own) and len(guess_mine) == len(own)
+            diag.update({"source": "rosters", "inferredTrades": len(guess), "teamsWithPickups": coverage,
+                         "pickups": len(hist["adds"]), "ownTrades": len(own), "ownFound": matched,
+                         "inferredForOwnTeam": len(guess_mine), "trusted": trusted, "transactionKinds": hist["kinds"]})
+            if not trusted:
+                guess = []
+        except Exception:  # noqa: BLE001
+            guess = []
+            trade_errors.append(traceback.format_exc(limit=4)[-1500:])
+    else:
+        diag["source"] = "activity" if feed else "none"
+    trades = feed or guess
     log(f"  {year}: trades {diag}")
 
     # Player points: season totals for the draft, week by week for trades
@@ -749,7 +728,8 @@ def assemble(league_id: int, results: list[dict]) -> dict:
         draft += [{**d, "y": r["year"], "m": ix(d["m"])} for d in r.get("draft", [])]
         for t in r.get("trades", []):
             trades.append({"y": r["year"], "wk": t["wk"], "date": t["date"], "sides": [
-                {**s, "m": ix(s["m"]), "got": [{**g, "from": ix(g["from"]) if g["from"] else None} for g in s["got"]]}
+                {**s, "m": ix(s["m"]), "got": [{**g, "from": ix(g["from"]) if g["from"] else None} for g in s["got"]],
+                 "gave": [{**g, "to": ix(g["to"]) if g.get("to") else None} for g in s.get("gave", [])]}
                 for s in t["sides"]]})
 
     box_years = [r["year"] for r in results if r["boxScores"]]
