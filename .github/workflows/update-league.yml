@@ -2,7 +2,7 @@ name: Update league data
 
 on:
   schedule:
-    - cron: "37 11 * * 2"   # Tuesdays 5:07 am Central, after Monday Night Football
+    - cron: "7 11 * * 2"   # Tuesdays 5:07 am Central, after Monday Night Football
     - cron: "37 15 * * 2"   # Tuesday afternoon backup
     - cron: "37 11 * * 3"   # Wednesday backup
   workflow_dispatch:        # "Run workflow" button on the Actions tab
